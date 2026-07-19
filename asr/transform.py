@@ -3,15 +3,28 @@
 A minimal AST-level port of FOL's loop-carried classify-and-rewrite walk:
 given a `while` loop that threads a frozen-dataclass accumulator through
 its own back-edge, rebuilding it every iteration via a full constructor
-call or `dataclasses.replace`, split the accumulator into one scalar
-local per field and re-box only once, at the loop's exit.
+call, `dataclasses.replace`, or a one-level helper-function call, split
+the accumulator into one scalar local per field and re-box only once, at
+the loop's exit.
 
-Scope, deliberately narrow for v1 (see the plan / paper's Threats to
-Validity discussion): single accumulator only, no interprocedural
-inlining through helper functions, no if/cond/case-branched
-reconstruction, and the only supported post-loop shape is a single
-trailing `return p`. Every other shape is declined, never miscompiled --
-the same safe-by-abort discipline FOL's own walk uses.
+v1.1 adds interprocedural reach by inlining (FOL's sec:inline): when the
+loop's reconstruction is a call to a plain helper function whose own
+body is exactly `return <reconstruction>`, and exactly one of the call's
+arguments is the accumulator itself, the callee's body is inlined in
+place and its parameter joins the alias set -- reads of that parameter
+inside the inlined body are recognized as field reads exactly like reads
+of the accumulator's own name. The callee's OTHER parameters (if any)
+are substituted with the actual argument expressions from the call site;
+FOL's "arguments are symbols or literals" restriction is enforced here
+too, keeping the substitution capture-free. This is deliberately a
+ONE-LEVEL inliner, same as FOL's: the callee's return expression must
+itself be a direct reconstruction, not another call to a further helper.
+
+Scope still deliberately narrow otherwise: single accumulator only, no
+if/cond/case-branched reconstruction, and the only supported post-loop
+shape is a single trailing `return p`. Every unrecognized shape is
+declined, never miscompiled -- the same safe-by-abort discipline FOL's
+own walk uses.
 """
 
 import ast
@@ -62,10 +75,10 @@ def _ctor_field_value(call_node, fields, field_name):
     raise AsrDecline(f"field {field_name!r} not supplied in constructor call")
 
 
-def _is_replace_call(node, var_name, fields):
-    """`dataclasses.replace(p, ...)` or `replace(p, ...)` (if imported
-    directly) -- the assoc analog. Every keyword must name a known field
-    and there must be no **kwargs spread."""
+def _is_replace_call(node, alias, fields):
+    """`dataclasses.replace(alias, ...)` or `replace(alias, ...)` (if
+    imported directly) -- the assoc analog. Every keyword must name a
+    known field and there must be no **kwargs spread."""
     if not isinstance(node, ast.Call):
         return False
     fn = node.func
@@ -74,7 +87,7 @@ def _is_replace_call(node, var_name, fields):
     )
     if not is_replace_name:
         return False
-    if not node.args or not (isinstance(node.args[0], ast.Name) and node.args[0].id == var_name):
+    if not node.args or not (isinstance(node.args[0], ast.Name) and node.args[0].id == alias):
         return False
     if len(node.args) > 1:
         return False  # dataclasses.replace only takes the instance positionally
@@ -91,6 +104,166 @@ def _collect_all_names(func_def):
         elif isinstance(node, ast.arg):
             names.add(node.arg)
     return names
+
+
+def _strip_docstring(body):
+    if (
+        body
+        and isinstance(body[0], ast.Expr)
+        and isinstance(body[0].value, ast.Constant)
+        and isinstance(body[0].value.value, str)
+    ):
+        return body[1:]
+    return body
+
+
+def _references_only_as_field_reads(node, alias_names, fields):
+    """True when every bare reference to a name in `alias_names` inside
+    `node` is part of a recognized `alias.field` attribute read (for a
+    field in `fields`). Used to validate a reconstruction's own value
+    expressions don't smuggle a bare accumulator reference through some
+    other channel."""
+    ok = True
+
+    def visit(n):
+        nonlocal ok
+        if not ok:
+            return
+        if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name) and n.value.id in alias_names:
+            if n.attr not in fields:
+                ok = False
+            return
+        if isinstance(n, ast.Name) and n.id in alias_names:
+            ok = False
+            return
+        for child in ast.iter_child_nodes(n):
+            visit(child)
+
+    visit(node)
+    return ok
+
+
+def _reconstruction_field_values(value, alias_names, class_name, fields):
+    """If `value` is a `ClassName(...)` full reconstruction or a
+    `dataclasses.replace(alias, ...)` partial reconstruction (for some
+    alias in alias_names), and every reference to an alias anywhere in
+    `value` is a recognized `.field` read, return {field_name:
+    value_expr} for the fields actually touched (all of them, for a
+    full reconstruction). Returns None if `value` isn't one of these two
+    recognized shapes, or if an alias escapes some other way."""
+    if (
+        isinstance(value, ast.Call)
+        and isinstance(value.func, ast.Name)
+        and value.func.id == class_name
+        and not any(kw.arg is None for kw in value.keywords)
+        and _ctor_supplies_all_fields(value, fields)
+    ):
+        if not _references_only_as_field_reads(value, alias_names, fields):
+            return None
+        return {f: _ctor_field_value(value, fields, f) for f in fields}
+    for alias in alias_names:
+        if _is_replace_call(value, alias, fields):
+            # Check only the keyword VALUES for escapes -- value.args[0]
+            # is the call's own required `replace(alias, ...)` reference
+            # to the alias itself, a recognized part of this shape, not
+            # a bare-reference escape.
+            if not all(
+                _references_only_as_field_reads(kw.value, alias_names, fields) for kw in value.keywords
+            ):
+                return None
+            return {kw.arg: kw.value for kw in value.keywords}
+    return None
+
+
+# --------------------------------------------------------------------------
+# Interprocedural reach by inlining (v1.1, FOL's sec:inline)
+# --------------------------------------------------------------------------
+
+class _ParamSubstituter(ast.NodeTransformer):
+    """Replaces bare `Name(id=param)` with the corresponding call-site
+    argument expression, for the callee's non-accumulator parameters."""
+
+    def __init__(self, bindings):
+        self.bindings = bindings  # param_name -> ast.expr (Name or Constant)
+
+    def visit_Name(self, node):
+        if isinstance(node.ctx, ast.Load) and node.id in self.bindings:
+            new = copy.deepcopy(self.bindings[node.id])
+            return ast.copy_location(new, node)
+        return node
+
+
+def _match_call_to_accumulator_param(call_node, param_names, var_name):
+    """If exactly one of call_node's arguments is `Name(id=var_name)`
+    (the accumulator itself, unmodified) and every other argument is a
+    plain Name or literal Constant (FOL's "arguments are symbols or
+    literals" restriction -- keeps the substitution capture-free and
+    side-effect-safe), return (accumulator_param_name, {other_param:
+    arg_expr, ...}). Otherwise return None."""
+    if len(call_node.args) > len(param_names):
+        return None
+    if any(kw.arg is None for kw in call_node.keywords):
+        return None  # **kwargs spread
+    bound = {}
+    for i, a in enumerate(call_node.args):
+        bound[param_names[i]] = a
+    for kw in call_node.keywords:
+        if kw.arg not in param_names or kw.arg in bound:
+            return None
+        bound[kw.arg] = kw.value
+    if len(bound) != len(param_names):
+        return None  # a defaulted param left unsupplied -- decline for v1.1 simplicity
+
+    accumulator_params = [p for p, expr in bound.items() if isinstance(expr, ast.Name) and expr.id == var_name]
+    if len(accumulator_params) != 1:
+        return None
+    accumulator_param = accumulator_params[0]
+    others = {p: expr for p, expr in bound.items() if p != accumulator_param}
+    if not all(isinstance(expr, (ast.Name, ast.Constant)) for expr in others.values()):
+        return None
+    return accumulator_param, others
+
+
+def _try_inline_call(call_node, var_name, class_name, fields, globalns):
+    """Attempt a one-level inline of a `var_name = helper(...)`
+    reconstruction. Returns (accumulator_param, {field: substituted_value_expr})
+    on success, or None to decline (never raises -- an unrecognized
+    helper shape is exactly as safe as an unrecognized inline expression,
+    the caller just falls through to the ordinary decline path)."""
+    if not isinstance(call_node.func, ast.Name):
+        return None
+    helper = globalns.get(call_node.func.id)
+    if helper is None or not inspect.isfunction(helper):
+        return None
+    if getattr(helper, "__asr_transformed__", False):
+        return None  # don't inline an already-@asr-transformed function
+
+    try:
+        helper_src = textwrap.dedent(inspect.getsource(helper))
+        helper_tree = ast.parse(helper_src)
+    except (OSError, TypeError, SyntaxError):
+        return None
+    if not helper_tree.body or not isinstance(helper_tree.body[0], ast.FunctionDef):
+        return None
+    helper_def = helper_tree.body[0]
+
+    body = _strip_docstring(helper_def.body)
+    if not (len(body) == 1 and isinstance(body[0], ast.Return) and body[0].value is not None):
+        return None  # FOL's "single-clause function whose body reduces to a constructor"
+
+    param_names = [a.arg for a in helper_def.args.args]
+    matched = _match_call_to_accumulator_param(call_node, param_names, var_name)
+    if matched is None:
+        return None
+    accumulator_param, other_bindings = matched
+
+    field_values = _reconstruction_field_values(body[0].value, {accumulator_param}, class_name, fields)
+    if field_values is None:
+        return None  # callee's return expr isn't itself a recognized reconstruction
+
+    param_subst = _ParamSubstituter(other_bindings)
+    substituted = {f: param_subst.visit(copy.deepcopy(expr)) for f, expr in field_values.items()}
+    return accumulator_param, substituted
 
 
 # --------------------------------------------------------------------------
@@ -125,15 +298,18 @@ def _find_accumulator(pre_loop_stmts, globalns):
     raise AsrDecline("no qualifying accumulator initializer found before the loop")
 
 
-def _analyze_loop_body(while_node, var_name, class_name, fields):
+def _analyze_loop_body(while_node, var_name, class_name, fields, globalns):
     """Walk the while loop's body looking for exactly one recognized
-    reconstruction of `var_name` and no other bare reference to it.
-    Returns the single reconstruction Assign node."""
-    reconstruction = None
+    reconstruction of `var_name` -- direct, dataclasses.replace-based,
+    or a one-level inlined helper call -- and no other bare reference to
+    it. Returns (reconstruction_assign, alias_names: frozenset,
+    field_values: dict[str, ast.expr])."""
+    reconstruction_assign = None
+    result = None  # (alias_names, field_values)
     ok = True
 
     def visit(node):
-        nonlocal reconstruction, ok
+        nonlocal reconstruction_assign, result, ok
         if not ok:
             return
         if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.value.id == var_name:
@@ -149,28 +325,29 @@ def _analyze_loop_body(while_node, var_name, class_name, fields):
             and isinstance(node.targets[0], ast.Name)
             and node.targets[0].id == var_name
         ):
-            if reconstruction is not None:
+            if reconstruction_assign is not None:
                 ok = False  # more than one reconstruction -- out of v1 scope
                 return
             value = node.value
-            if (
-                isinstance(value, ast.Call)
-                and isinstance(value.func, ast.Name)
-                and value.func.id == class_name
-                and not any(kw.arg is None for kw in value.keywords)
-                and _ctor_supplies_all_fields(value, fields)
-            ):
-                reconstruction = node
-                for a in value.args:
-                    visit(a)
-                for kw in value.keywords:
-                    visit(kw.value)
+
+            field_values = _reconstruction_field_values(value, frozenset({var_name}), class_name, fields)
+            if field_values is not None:
+                reconstruction_assign = node
+                result = (frozenset({var_name}), field_values)
+                for expr in field_values.values():
+                    visit(expr)
                 return
-            if _is_replace_call(value, var_name, fields):
-                reconstruction = node
-                for kw in value.keywords:
-                    visit(kw.value)
-                return
+
+            if isinstance(value, ast.Call) and isinstance(value.func, ast.Name):
+                inlined = _try_inline_call(value, var_name, class_name, fields, globalns)
+                if inlined is not None:
+                    accumulator_param, substituted = inlined
+                    reconstruction_assign = node
+                    result = (frozenset({var_name, accumulator_param}), substituted)
+                    for expr in substituted.values():
+                        visit(expr)
+                    return
+
             ok = False
             return
         for child in ast.iter_child_nodes(node):
@@ -179,9 +356,10 @@ def _analyze_loop_body(while_node, var_name, class_name, fields):
     for stmt in while_node.body:
         visit(stmt)
 
-    if not ok or reconstruction is None:
+    if not ok or result is None:
         raise AsrDecline("loop body has an unrecognized accumulator use")
-    return reconstruction
+    alias_names, field_values = result
+    return reconstruction_assign, alias_names, field_values
 
 
 # --------------------------------------------------------------------------
@@ -189,16 +367,19 @@ def _analyze_loop_body(while_node, var_name, class_name, fields):
 # --------------------------------------------------------------------------
 
 class _FieldSubstituter(ast.NodeTransformer):
-    """Replaces `var_name.field` with the corresponding scalar Name."""
+    """Replaces `alias.field` with the corresponding scalar Name, for
+    any alias in the alias set (the accumulator's own name, plus -- when
+    a reconstruction was inlined -- the inlined callee's own parameter
+    name for that same accumulator)."""
 
-    def __init__(self, var_name, scalar_names):
-        self.var_name = var_name
+    def __init__(self, alias_names, scalar_names):
+        self.alias_names = alias_names
         self.scalar_names = scalar_names
 
     def visit_Attribute(self, node):
         if (
             isinstance(node.value, ast.Name)
-            and node.value.id == self.var_name
+            and node.value.id in self.alias_names
             and node.attr in self.scalar_names
         ):
             new = ast.Name(id=self.scalar_names[node.attr], ctx=ast.Load())
@@ -213,38 +394,29 @@ def _mk_assign(target_name, value_expr, loc_from):
     return stmt
 
 
-def _rewrite_loop_body(while_node, var_name, class_name, fields, scalar_names, reconstruction):
-    subst = _FieldSubstituter(var_name, scalar_names)
+def _rewrite_loop_body(while_node, alias_names, scalar_names, reconstruction_assign, field_values):
+    subst = _FieldSubstituter(alias_names, scalar_names)
     new_body = []
     for stmt in while_node.body:
-        if stmt is reconstruction:
-            call = stmt.value
-            if isinstance(call, ast.Call) and isinstance(call.func, ast.Name) and call.func.id == class_name:
-                # Full reconstruction: every field is touched.
-                touched = list(fields)
-                value_exprs = {
-                    f: subst.visit(copy.deepcopy(_ctor_field_value(call, fields, f))) for f in touched
-                }
-            else:
-                # dataclasses.replace(p, field=val, ...): only the fields
-                # actually supplied get a new value. Fields NOT named
-                # keep their prior scalar value automatically -- ordinary
-                # Python local persistence across loop iterations, unlike
-                # FOL's parallel-update recur/psetq, which has to thread
-                # every loop variable explicitly every iteration.
-                touched = [kw.arg for kw in call.keywords]
-                value_exprs = {kw.arg: subst.visit(copy.deepcopy(kw.value)) for kw in call.keywords}
-            # Parallel-update semantics for the fields that ARE touched
-            # (mirrors FOL's psetq/recur): evaluate every new value
-            # against the CURRENT scalars first, via temporaries, before
-            # reassigning any of them. Without this, a reconstruction
-            # that reads one field while updating another in the same
-            # call -- e.g. `replace(acc, n=acc.n+1, total=acc.total+acc.n)`
-            # -- would silently see the just-updated value of `n` instead
-            # of the value it had at the start of the iteration.
+        if stmt is reconstruction_assign:
+            # Parallel-update semantics (mirrors FOL's psetq/recur):
+            # evaluate every new value against the CURRENT scalars first,
+            # via temporaries, before reassigning any of them. Without
+            # this, a reconstruction that reads one field while updating
+            # another in the same call -- e.g.
+            # `replace(acc, n=acc.n+1, total=acc.total+acc.n)`, or an
+            # inlined helper doing the same -- would silently see the
+            # just-updated value instead of the value at the start of
+            # the iteration. Fields NOT touched (a partial
+            # reconstruction) keep their prior scalar value automatically
+            # -- ordinary Python local persistence across loop
+            # iterations, unlike FOL's parallel-update recur/psetq,
+            # which has to thread every loop variable explicitly.
+            touched = list(field_values.keys())
+            substituted_values = {f: subst.visit(copy.deepcopy(field_values[f])) for f in touched}
             tmp_names = {f: f"__asr_tmp_{scalar_names[f]}" for f in touched}
             for f in touched:
-                new_body.append(_mk_assign(tmp_names[f], value_exprs[f], stmt))
+                new_body.append(_mk_assign(tmp_names[f], substituted_values[f], stmt))
             for f in touched:
                 new_body.append(
                     _mk_assign(scalar_names[f], ast.Name(id=tmp_names[f], ctx=ast.Load()), stmt)
@@ -299,7 +471,9 @@ def _try_transform_inner(func):
             if isinstance(node, ast.Name) and node.id == var_name:
                 raise AsrDecline("accumulator referenced between its init and the loop")
 
-    reconstruction = _analyze_loop_body(while_node, var_name, cls.__name__, fields)
+    reconstruction_assign, alias_names, field_values = _analyze_loop_body(
+        while_node, var_name, cls.__name__, fields, globalns
+    )
 
     tail = func_def.body[loop_idx + 1 :]
     if not (
@@ -318,6 +492,20 @@ def _try_transform_inner(func):
     for name in candidate_names:
         if name in existing_names:
             raise AsrDecline(f"scalar name collision: {name}")
+    # An inlined helper's substituted field-value expressions can, in
+    # principle, mention a free name that happens to collide with a
+    # synthesized scalar/temp name too (vanishingly unlikely given the
+    # __asr_ prefix, but cheap to rule out -- never trust an inlined
+    # expression more than a local one).
+    if len(alias_names) > 1:
+        inlined_names = set()
+        for expr in field_values.values():
+            for node in ast.walk(expr):
+                if isinstance(node, ast.Name):
+                    inlined_names.add(node.id)
+        for name in candidate_names:
+            if name in inlined_names:
+                raise AsrDecline(f"scalar name collision in inlined expression: {name}")
 
     accum_assign = func_def.body[accum_idx]
     init_stmts = [
@@ -329,7 +517,7 @@ def _try_transform_inner(func):
         for field in fields
     ]
 
-    new_while = _rewrite_loop_body(while_node, var_name, cls.__name__, fields, scalar_names, reconstruction)
+    new_while = _rewrite_loop_body(while_node, alias_names, scalar_names, reconstruction_assign, field_values)
 
     # Per-function-unique injected names: two @asr-decorated functions in
     # the same module must not clobber each other's guard cell/class ref.

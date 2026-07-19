@@ -1,10 +1,10 @@
 """Particle benchmark, ported from benchmarks/fol-code/asr-particle.fol.
 
 FOL's version threads the accumulator through an inlinable helper
-(update-particle); v1 of this port excludes interprocedural inlining
-(the plan's locked-in scope decision), so the update is inlined directly
-in the loop body here -- the same simplification FOL's own paper applies
-before sec:inline is introduced.
+(update-particle). v1.1 adds interprocedural inlining (FOL's
+sec:inline), so this now ports directly with the helper call intact --
+no inlining simplification needed, unlike when this benchmark was first
+written against v1.
 """
 
 import dataclasses
@@ -23,11 +23,15 @@ class Particle(object):
     y: float
 
 
+def update_particle(p):
+    return Particle(p.x + 0.1, p.y + 0.2)
+
+
 def run_particle_original(iterations):
     p = Particle(0.0, 0.0)
     i = 0
     while i < iterations:
-        p = Particle(p.x + 0.1, p.y + 0.2)
+        p = update_particle(p)
         i += 1
     return p
 
@@ -36,7 +40,7 @@ def run_particle(iterations):
     p = Particle(0.0, 0.0)
     i = 0
     while i < iterations:
-        p = Particle(p.x + 0.1, p.y + 0.2)
+        p = update_particle(p)
         i += 1
     return p
 
@@ -48,7 +52,7 @@ assert getattr(run_particle, "__asr_transformed__", False), "Particle benchmark 
 def main():
     cell = guard._registry[(run_particle.__module__, "Particle")]
     return run_benchmark(
-        "Particle (full reconstruction)",
+        "Particle (inlined helper call)",
         run_particle_original,
         run_particle,
         cell,
