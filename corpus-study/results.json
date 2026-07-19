@@ -1,0 +1,787 @@
+{
+  "projects": [
+    {
+      "project": "astropy__astropy",
+      "domain": "numeric",
+      "files": 1003,
+      "read_errors": 0,
+      "records": 2105,
+      "loop": {
+        "sites": 271,
+        "record": 22,
+        "record_strong": 22,
+        "ctor": 7,
+        "assoc": 0,
+        "mutate": 18,
+        "map": 2,
+        "coll": 17,
+        "primitive": 94
+      },
+      "reduce": {
+        "sites": 0,
+        "record": 0,
+        "record_strong": 0,
+        "ctor": 0,
+        "assoc": 0,
+        "mutate": 0,
+        "map": 0,
+        "coll": 0,
+        "primitive": 0
+      }
+    },
+    {
+      "project": "davidhalter__parso",
+      "domain": "language_compilers",
+      "files": 78,
+      "read_errors": 7,
+      "records": 153,
+      "loop": {
+        "sites": 36,
+        "record": 0,
+        "record_strong": 0,
+        "ctor": 0,
+        "assoc": 0,
+        "mutate": 0,
+        "map": 0,
+        "coll": 1,
+        "primitive": 18
+      },
+      "reduce": {
+        "sites": 0,
+        "record": 0,
+        "record_strong": 0,
+        "ctor": 0,
+        "assoc": 0,
+        "mutate": 0,
+        "map": 0,
+        "coll": 0,
+        "primitive": 0
+      }
+    },
+    {
+      "project": "encode__httpx",
+      "domain": "web",
+      "files": 60,
+      "read_errors": 0,
+      "records": 103,
+      "loop": {
+        "sites": 16,
+        "record": 0,
+        "record_strong": 0,
+        "ctor": 0,
+        "assoc": 0,
+        "mutate": 0,
+        "map": 0,
+        "coll": 0,
+        "primitive": 7
+      },
+      "reduce": {
+        "sites": 0,
+        "record": 0,
+        "record_strong": 0,
+        "ctor": 0,
+        "assoc": 0,
+        "mutate": 0,
+        "map": 0,
+        "coll": 0,
+        "primitive": 0
+      }
+    },
+    {
+      "project": "encode__starlette",
+      "domain": "web",
+      "files": 67,
+      "read_errors": 0,
+      "records": 153,
+      "loop": {
+        "sites": 12,
+        "record": 0,
+        "record_strong": 0,
+        "ctor": 0,
+        "assoc": 0,
+        "mutate": 0,
+        "map": 0,
+        "coll": 0,
+        "primitive": 8
+      },
+      "reduce": {
+        "sites": 0,
+        "record": 0,
+        "record_strong": 0,
+        "ctor": 0,
+        "assoc": 0,
+        "mutate": 0,
+        "map": 0,
+        "coll": 0,
+        "primitive": 0
+      }
+    },
+    {
+      "project": "grantjenks__python-sortedcontainers",
+      "domain": "data_structures",
+      "files": 26,
+      "read_errors": 0,
+      "records": 29,
+      "loop": {
+        "sites": 13,
+        "record": 0,
+        "record_strong": 0,
+        "ctor": 0,
+        "assoc": 0,
+        "mutate": 0,
+        "map": 0,
+        "coll": 0,
+        "primitive": 1
+      },
+      "reduce": {
+        "sites": 0,
+        "record": 0,
+        "record_strong": 0,
+        "ctor": 0,
+        "assoc": 0,
+        "mutate": 0,
+        "map": 0,
+        "coll": 0,
+        "primitive": 0
+      }
+    },
+    {
+      "project": "hgrecco__pint",
+      "domain": "numeric",
+      "files": 109,
+      "read_errors": 0,
+      "records": 200,
+      "loop": {
+        "sites": 25,
+        "record": 1,
+        "record_strong": 0,
+        "ctor": 0,
+        "assoc": 0,
+        "mutate": 0,
+        "map": 0,
+        "coll": 2,
+        "primitive": 10
+      },
+      "reduce": {
+        "sites": 1,
+        "record": 0,
+        "record_strong": 0,
+        "ctor": 0,
+        "assoc": 0,
+        "mutate": 0,
+        "map": 0,
+        "coll": 0,
+        "primitive": 0
+      }
+    },
+    {
+      "project": "Instagram__LibCST",
+      "domain": "language_compilers",
+      "files": 335,
+      "read_errors": 6,
+      "records": 714,
+      "loop": {
+        "sites": 46,
+        "record": 3,
+        "record_strong": 3,
+        "ctor": 3,
+        "assoc": 0,
+        "mutate": 0,
+        "map": 4,
+        "coll": 4,
+        "primitive": 17
+      },
+      "reduce": {
+        "sites": 0,
+        "record": 0,
+        "record_strong": 0,
+        "ctor": 0,
+        "assoc": 0,
+        "mutate": 0,
+        "map": 0,
+        "coll": 0,
+        "primitive": 0
+      }
+    },
+    {
+      "project": "mahmoud__boltons",
+      "domain": "data_structures",
+      "files": 65,
+      "read_errors": 0,
+      "records": 114,
+      "loop": {
+        "sites": 24,
+        "record": 1,
+        "record_strong": 1,
+        "ctor": 1,
+        "assoc": 0,
+        "mutate": 0,
+        "map": 0,
+        "coll": 4,
+        "primitive": 7
+      },
+      "reduce": {
+        "sites": 0,
+        "record": 0,
+        "record_strong": 0,
+        "ctor": 0,
+        "assoc": 0,
+        "mutate": 0,
+        "map": 0,
+        "coll": 0,
+        "primitive": 0
+      }
+    },
+    {
+      "project": "ManimCommunity__manim",
+      "domain": "graphics_games",
+      "files": 330,
+      "read_errors": 0,
+      "records": 445,
+      "loop": {
+        "sites": 51,
+        "record": 0,
+        "record_strong": 0,
+        "ctor": 0,
+        "assoc": 0,
+        "mutate": 0,
+        "map": 0,
+        "coll": 3,
+        "primitive": 21
+      },
+      "reduce": {
+        "sites": 0,
+        "record": 0,
+        "record_strong": 0,
+        "ctor": 0,
+        "assoc": 0,
+        "mutate": 0,
+        "map": 0,
+        "coll": 0,
+        "primitive": 0
+      }
+    },
+    {
+      "project": "mpmath__mpmath",
+      "domain": "numeric",
+      "files": 146,
+      "read_errors": 0,
+      "records": 64,
+      "loop": {
+        "sites": 177,
+        "record": 1,
+        "record_strong": 1,
+        "ctor": 0,
+        "assoc": 0,
+        "mutate": 1,
+        "map": 0,
+        "coll": 8,
+        "primitive": 49
+      },
+      "reduce": {
+        "sites": 0,
+        "record": 0,
+        "record_strong": 0,
+        "ctor": 0,
+        "assoc": 0,
+        "mutate": 0,
+        "map": 0,
+        "coll": 0,
+        "primitive": 0
+      }
+    },
+    {
+      "project": "pallets__click",
+      "domain": "tooling",
+      "files": 77,
+      "read_errors": 0,
+      "records": 145,
+      "loop": {
+        "sites": 15,
+        "record": 0,
+        "record_strong": 0,
+        "ctor": 0,
+        "assoc": 0,
+        "mutate": 0,
+        "map": 0,
+        "coll": 1,
+        "primitive": 6
+      },
+      "reduce": {
+        "sites": 0,
+        "record": 0,
+        "record_strong": 0,
+        "ctor": 0,
+        "assoc": 0,
+        "mutate": 0,
+        "map": 0,
+        "coll": 0,
+        "primitive": 0
+      }
+    },
+    {
+      "project": "pallets__flask",
+      "domain": "web",
+      "files": 83,
+      "read_errors": 0,
+      "records": 128,
+      "loop": {
+        "sites": 4,
+        "record": 0,
+        "record_strong": 0,
+        "ctor": 0,
+        "assoc": 0,
+        "mutate": 0,
+        "map": 0,
+        "coll": 0,
+        "primitive": 0
+      },
+      "reduce": {
+        "sites": 0,
+        "record": 0,
+        "record_strong": 0,
+        "ctor": 0,
+        "assoc": 0,
+        "mutate": 0,
+        "map": 0,
+        "coll": 0,
+        "primitive": 0
+      }
+    },
+    {
+      "project": "psf__black",
+      "domain": "language_compilers",
+      "files": 336,
+      "read_errors": 8,
+      "records": 204,
+      "loop": {
+        "sites": 72,
+        "record": 2,
+        "record_strong": 2,
+        "ctor": 2,
+        "assoc": 0,
+        "mutate": 0,
+        "map": 0,
+        "coll": 1,
+        "primitive": 35
+      },
+      "reduce": {
+        "sites": 0,
+        "record": 0,
+        "record_strong": 0,
+        "ctor": 0,
+        "assoc": 0,
+        "mutate": 0,
+        "map": 0,
+        "coll": 0,
+        "primitive": 0
+      }
+    },
+    {
+      "project": "PyCQA__astroid",
+      "domain": "language_compilers",
+      "files": 269,
+      "read_errors": 1,
+      "records": 412,
+      "loop": {
+        "sites": 34,
+        "record": 2,
+        "record_strong": 2,
+        "ctor": 0,
+        "assoc": 0,
+        "mutate": 2,
+        "map": 0,
+        "coll": 3,
+        "primitive": 10
+      },
+      "reduce": {
+        "sites": 0,
+        "record": 0,
+        "record_strong": 0,
+        "ctor": 0,
+        "assoc": 0,
+        "mutate": 0,
+        "map": 0,
+        "coll": 0,
+        "primitive": 0
+      }
+    },
+    {
+      "project": "pydantic__pydantic",
+      "domain": "web",
+      "files": 405,
+      "read_errors": 0,
+      "records": 1444,
+      "loop": {
+        "sites": 51,
+        "record": 3,
+        "record_strong": 2,
+        "ctor": 2,
+        "assoc": 0,
+        "mutate": 0,
+        "map": 5,
+        "coll": 0,
+        "primitive": 19
+      },
+      "reduce": {
+        "sites": 0,
+        "record": 0,
+        "record_strong": 0,
+        "ctor": 0,
+        "assoc": 0,
+        "mutate": 0,
+        "map": 0,
+        "coll": 0,
+        "primitive": 0
+      }
+    },
+    {
+      "project": "pyglet__pyglet",
+      "domain": "graphics_games",
+      "files": 466,
+      "read_errors": 0,
+      "records": 1425,
+      "loop": {
+        "sites": 139,
+        "record": 7,
+        "record_strong": 6,
+        "ctor": 2,
+        "assoc": 0,
+        "mutate": 5,
+        "map": 1,
+        "coll": 3,
+        "primitive": 75
+      },
+      "reduce": {
+        "sites": 0,
+        "record": 0,
+        "record_strong": 0,
+        "ctor": 0,
+        "assoc": 0,
+        "mutate": 0,
+        "map": 0,
+        "coll": 0,
+        "primitive": 0
+      }
+    },
+    {
+      "project": "pytest-dev__pytest",
+      "domain": "tooling",
+      "files": 270,
+      "read_errors": 0,
+      "records": 641,
+      "loop": {
+        "sites": 43,
+        "record": 0,
+        "record_strong": 0,
+        "ctor": 0,
+        "assoc": 0,
+        "mutate": 0,
+        "map": 0,
+        "coll": 1,
+        "primitive": 22
+      },
+      "reduce": {
+        "sites": 0,
+        "record": 0,
+        "record_strong": 0,
+        "ctor": 0,
+        "assoc": 0,
+        "mutate": 0,
+        "map": 0,
+        "coll": 0,
+        "primitive": 0
+      }
+    },
+    {
+      "project": "python-attrs__attrs",
+      "domain": "data_structures",
+      "files": 54,
+      "read_errors": 0,
+      "records": 272,
+      "loop": {
+        "sites": 6,
+        "record": 0,
+        "record_strong": 0,
+        "ctor": 0,
+        "assoc": 0,
+        "mutate": 0,
+        "map": 0,
+        "coll": 0,
+        "primitive": 3
+      },
+      "reduce": {
+        "sites": 0,
+        "record": 0,
+        "record_strong": 0,
+        "ctor": 0,
+        "assoc": 0,
+        "mutate": 0,
+        "map": 0,
+        "coll": 0,
+        "primitive": 0
+      }
+    },
+    {
+      "project": "python-poetry__poetry",
+      "domain": "tooling",
+      "files": 441,
+      "read_errors": 0,
+      "records": 300,
+      "loop": {
+        "sites": 39,
+        "record": 0,
+        "record_strong": 0,
+        "ctor": 0,
+        "assoc": 0,
+        "mutate": 0,
+        "map": 0,
+        "coll": 1,
+        "primitive": 22
+      },
+      "reduce": {
+        "sites": 0,
+        "record": 0,
+        "record_strong": 0,
+        "ctor": 0,
+        "assoc": 0,
+        "mutate": 0,
+        "map": 0,
+        "coll": 0,
+        "primitive": 0
+      }
+    },
+    {
+      "project": "python__mypy",
+      "domain": "language_compilers",
+      "files": 441,
+      "read_errors": 0,
+      "records": 848,
+      "loop": {
+        "sites": 198,
+        "record": 11,
+        "record_strong": 10,
+        "ctor": 3,
+        "assoc": 0,
+        "mutate": 9,
+        "map": 0,
+        "coll": 4,
+        "primitive": 115
+      },
+      "reduce": {
+        "sites": 0,
+        "record": 0,
+        "record_strong": 0,
+        "ctor": 0,
+        "assoc": 0,
+        "mutate": 0,
+        "map": 0,
+        "coll": 0,
+        "primitive": 0
+      }
+    },
+    {
+      "project": "pythonarcade__arcade",
+      "domain": "graphics_games",
+      "files": 691,
+      "read_errors": 0,
+      "records": 513,
+      "loop": {
+        "sites": 81,
+        "record": 32,
+        "record_strong": 32,
+        "ctor": 18,
+        "assoc": 0,
+        "mutate": 14,
+        "map": 0,
+        "coll": 1,
+        "primitive": 24
+      },
+      "reduce": {
+        "sites": 0,
+        "record": 0,
+        "record_strong": 0,
+        "ctor": 0,
+        "assoc": 0,
+        "mutate": 0,
+        "map": 0,
+        "coll": 0,
+        "primitive": 0
+      }
+    },
+    {
+      "project": "statsmodels__statsmodels",
+      "domain": "numeric",
+      "files": 1216,
+      "read_errors": 0,
+      "records": 2084,
+      "loop": {
+        "sites": 206,
+        "record": 8,
+        "record_strong": 8,
+        "ctor": 8,
+        "assoc": 0,
+        "mutate": 0,
+        "map": 2,
+        "coll": 12,
+        "primitive": 70
+      },
+      "reduce": {
+        "sites": 0,
+        "record": 0,
+        "record_strong": 0,
+        "ctor": 0,
+        "assoc": 0,
+        "mutate": 0,
+        "map": 0,
+        "coll": 0,
+        "primitive": 0
+      }
+    },
+    {
+      "project": "sympy__sympy",
+      "domain": "numeric",
+      "files": 1599,
+      "read_errors": 0,
+      "records": 2246,
+      "loop": {
+        "sites": 1117,
+        "record": 31,
+        "record_strong": 23,
+        "ctor": 22,
+        "assoc": 0,
+        "mutate": 1,
+        "map": 3,
+        "coll": 105,
+        "primitive": 413
+      },
+      "reduce": {
+        "sites": 25,
+        "record": 0,
+        "record_strong": 0,
+        "ctor": 0,
+        "assoc": 0,
+        "mutate": 0,
+        "map": 0,
+        "coll": 4,
+        "primitive": 12
+      }
+    },
+    {
+      "project": "Textualize__rich",
+      "domain": "tooling",
+      "files": 213,
+      "read_errors": 0,
+      "records": 232,
+      "loop": {
+        "sites": 24,
+        "record": 0,
+        "record_strong": 0,
+        "ctor": 0,
+        "assoc": 0,
+        "mutate": 0,
+        "map": 0,
+        "coll": 2,
+        "primitive": 17
+      },
+      "reduce": {
+        "sites": 0,
+        "record": 0,
+        "record_strong": 0,
+        "ctor": 0,
+        "assoc": 0,
+        "mutate": 0,
+        "map": 0,
+        "coll": 0,
+        "primitive": 0
+      }
+    },
+    {
+      "project": "tiangolo__fastapi",
+      "domain": "web",
+      "files": 1127,
+      "read_errors": 0,
+      "records": 411,
+      "loop": {
+        "sites": 16,
+        "record": 0,
+        "record_strong": 0,
+        "ctor": 0,
+        "assoc": 0,
+        "mutate": 0,
+        "map": 0,
+        "coll": 1,
+        "primitive": 9
+      },
+      "reduce": {
+        "sites": 0,
+        "record": 0,
+        "record_strong": 0,
+        "ctor": 0,
+        "assoc": 0,
+        "mutate": 0,
+        "map": 0,
+        "coll": 0,
+        "primitive": 0
+      }
+    },
+    {
+      "project": "tobgu__pyrsistent",
+      "domain": "data_structures",
+      "files": 42,
+      "read_errors": 0,
+      "records": 113,
+      "loop": {
+        "sites": 22,
+        "record": 0,
+        "record_strong": 0,
+        "ctor": 0,
+        "assoc": 0,
+        "mutate": 0,
+        "map": 0,
+        "coll": 0,
+        "primitive": 2
+      },
+      "reduce": {
+        "sites": 1,
+        "record": 0,
+        "record_strong": 0,
+        "ctor": 0,
+        "assoc": 0,
+        "mutate": 0,
+        "map": 0,
+        "coll": 0,
+        "primitive": 0
+      }
+    },
+    {
+      "project": "viblo__pymunk",
+      "domain": "graphics_games",
+      "files": 125,
+      "read_errors": 0,
+      "records": 97,
+      "loop": {
+        "sites": 46,
+        "record": 18,
+        "record_strong": 18,
+        "ctor": 8,
+        "assoc": 0,
+        "mutate": 11,
+        "map": 2,
+        "coll": 2,
+        "primitive": 13
+      },
+      "reduce": {
+        "sites": 0,
+        "record": 0,
+        "record_strong": 0,
+        "ctor": 0,
+        "assoc": 0,
+        "mutate": 0,
+        "map": 0,
+        "coll": 0,
+        "primitive": 0
+      }
+    }
+  ]
+}

@@ -1,0 +1,166 @@
+{
+  "repos": [
+    {
+      "domain": "numeric",
+      "org_repo": "sympy/sympy",
+      "url": "https://github.com/sympy/sympy.git",
+      "sha": "71777ea1027e2774c91c1c2f93945a68662b38cf"
+    },
+    {
+      "domain": "numeric",
+      "org_repo": "astropy/astropy",
+      "url": "https://github.com/astropy/astropy.git",
+      "sha": "7893da4359a15ab053105c6c0fe9b18f3b81b12b"
+    },
+    {
+      "domain": "numeric",
+      "org_repo": "hgrecco/pint",
+      "url": "https://github.com/hgrecco/pint.git",
+      "sha": "7a927b4515b29917a76ee14617608531c59dd1d5"
+    },
+    {
+      "domain": "numeric",
+      "org_repo": "mpmath/mpmath",
+      "url": "https://github.com/mpmath/mpmath.git",
+      "sha": "7eb6f23063994a7bd5f8814a17c76de2e20741c9"
+    },
+    {
+      "domain": "numeric",
+      "org_repo": "statsmodels/statsmodels",
+      "url": "https://github.com/statsmodels/statsmodels.git",
+      "sha": "1bf73add5d92f64e48cf2ca143dfeef9811e4eac"
+    },
+    {
+      "domain": "graphics_games",
+      "org_repo": "pyglet/pyglet",
+      "url": "https://github.com/pyglet/pyglet.git",
+      "sha": "629b45175e548b81ba9ea083f8d3bc0774397e1b"
+    },
+    {
+      "domain": "graphics_games",
+      "org_repo": "pythonarcade/arcade",
+      "url": "https://github.com/pythonarcade/arcade.git",
+      "sha": "9369c16514dafca777862908864ba3cd7e093881"
+    },
+    {
+      "domain": "graphics_games",
+      "org_repo": "viblo/pymunk",
+      "url": "https://github.com/viblo/pymunk.git",
+      "sha": "6287ce6d9223d1d79d28b2c26f37499f45b445b8"
+    },
+    {
+      "domain": "graphics_games",
+      "org_repo": "ManimCommunity/manim",
+      "url": "https://github.com/ManimCommunity/manim.git",
+      "sha": "7bef6c0e4ca1e5aaea9d11d497c143a0264686b9"
+    },
+    {
+      "domain": "data_structures",
+      "org_repo": "tobgu/pyrsistent",
+      "url": "https://github.com/tobgu/pyrsistent.git",
+      "sha": "0c0b7aec8cd25b1d2d8ba07b10acdefd0f38f2c7"
+    },
+    {
+      "domain": "data_structures",
+      "org_repo": "grantjenks/python-sortedcontainers",
+      "url": "https://github.com/grantjenks/python-sortedcontainers.git",
+      "sha": "3ac358631f58c1347f1d6d2d92784117db0f38ed"
+    },
+    {
+      "domain": "data_structures",
+      "org_repo": "python-attrs/attrs",
+      "url": "https://github.com/python-attrs/attrs.git",
+      "sha": "358dec2c61e0213dd454a3240664cfb9924f3b56"
+    },
+    {
+      "domain": "data_structures",
+      "org_repo": "mahmoud/boltons",
+      "url": "https://github.com/mahmoud/boltons.git",
+      "sha": "e66cade323f5c11cebb4bd0f099e634b245adccd"
+    },
+    {
+      "domain": "language_compilers",
+      "org_repo": "python/mypy",
+      "url": "https://github.com/python/mypy.git",
+      "sha": "d17b99ed5929b74157e1b87f7899ce2682a622fb"
+    },
+    {
+      "domain": "language_compilers",
+      "org_repo": "psf/black",
+      "url": "https://github.com/psf/black.git",
+      "sha": "51abf53080b09eab12143727641ff1e2cd39d8c9"
+    },
+    {
+      "domain": "language_compilers",
+      "org_repo": "Instagram/LibCST",
+      "url": "https://github.com/Instagram/LibCST.git",
+      "sha": "00bb83d93d8cfb3c88f7c01aa314c63a704117b3"
+    },
+    {
+      "domain": "language_compilers",
+      "org_repo": "davidhalter/parso",
+      "url": "https://github.com/davidhalter/parso.git",
+      "sha": "bfe30584415cde2e5a686512c2b109e1d06da3b6"
+    },
+    {
+      "domain": "language_compilers",
+      "org_repo": "PyCQA/astroid",
+      "url": "https://github.com/PyCQA/astroid.git",
+      "sha": "47401e73bd130c5bd379c19efaef053b6a28e6ae"
+    },
+    {
+      "domain": "web",
+      "org_repo": "pallets/flask",
+      "url": "https://github.com/pallets/flask.git",
+      "sha": "36e4a824f340fdee7ed50937ba8e7f6bc7d17f81"
+    },
+    {
+      "domain": "web",
+      "org_repo": "tiangolo/fastapi",
+      "url": "https://github.com/tiangolo/fastapi.git",
+      "sha": "afe41126f624af30038cc8e17b2aaf60ebd4b838"
+    },
+    {
+      "domain": "web",
+      "org_repo": "encode/starlette",
+      "url": "https://github.com/encode/starlette.git",
+      "sha": "5174d4c8358a6f06aa8056bafd14c2272dab8dd1"
+    },
+    {
+      "domain": "web",
+      "org_repo": "pydantic/pydantic",
+      "url": "https://github.com/pydantic/pydantic.git",
+      "sha": "428b0dba8924c8c3c588458928fb69c9eb203d3d"
+    },
+    {
+      "domain": "web",
+      "org_repo": "encode/httpx",
+      "url": "https://github.com/encode/httpx.git",
+      "sha": "b5addb64f0161ff6bfe94c124ef76f6a1fba5254"
+    },
+    {
+      "domain": "tooling",
+      "org_repo": "pallets/click",
+      "url": "https://github.com/pallets/click.git",
+      "sha": "333c28d79cd982990ee98eef61ec20ab1a4f38ba"
+    },
+    {
+      "domain": "tooling",
+      "org_repo": "Textualize/rich",
+      "url": "https://github.com/Textualize/rich.git",
+      "sha": "9d8f9a372cc5916fd4781fec207ced7ddac2f08f"
+    },
+    {
+      "domain": "tooling",
+      "org_repo": "python-poetry/poetry",
+      "url": "https://github.com/python-poetry/poetry.git",
+      "sha": "f46702336862f30050d5c641d5ed6f7568ded793"
+    },
+    {
+      "domain": "tooling",
+      "org_repo": "pytest-dev/pytest",
+      "url": "https://github.com/pytest-dev/pytest.git",
+      "sha": "67a174fcee355334c53588be2eeba8df702477e9"
+    }
+  ]
+}

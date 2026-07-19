@@ -1,0 +1,301 @@
+{
+  "projects": [
+    {
+      "project": "astropy__astropy",
+      "domain": "numeric",
+      "files": 1003,
+      "candidate_bindings": 0,
+      "qualified_bindings": 0,
+      "qualified_name_blocked_bindings": 0,
+      "annassign_blocked_bindings": 0,
+      "candidate_forms": 0,
+      "qualified_forms": 0
+    },
+    {
+      "project": "davidhalter__parso",
+      "domain": "language_compilers",
+      "files": 78,
+      "candidate_bindings": 0,
+      "qualified_bindings": 0,
+      "qualified_name_blocked_bindings": 0,
+      "annassign_blocked_bindings": 0,
+      "candidate_forms": 0,
+      "qualified_forms": 0
+    },
+    {
+      "project": "encode__httpx",
+      "domain": "web",
+      "files": 60,
+      "candidate_bindings": 0,
+      "qualified_bindings": 0,
+      "qualified_name_blocked_bindings": 0,
+      "annassign_blocked_bindings": 0,
+      "candidate_forms": 0,
+      "qualified_forms": 0
+    },
+    {
+      "project": "encode__starlette",
+      "domain": "web",
+      "files": 67,
+      "candidate_bindings": 0,
+      "qualified_bindings": 0,
+      "qualified_name_blocked_bindings": 0,
+      "annassign_blocked_bindings": 0,
+      "candidate_forms": 0,
+      "qualified_forms": 0
+    },
+    {
+      "project": "grantjenks__python-sortedcontainers",
+      "domain": "data_structures",
+      "files": 26,
+      "candidate_bindings": 0,
+      "qualified_bindings": 0,
+      "qualified_name_blocked_bindings": 0,
+      "annassign_blocked_bindings": 0,
+      "candidate_forms": 0,
+      "qualified_forms": 0
+    },
+    {
+      "project": "hgrecco__pint",
+      "domain": "numeric",
+      "files": 109,
+      "candidate_bindings": 0,
+      "qualified_bindings": 0,
+      "qualified_name_blocked_bindings": 0,
+      "annassign_blocked_bindings": 0,
+      "candidate_forms": 0,
+      "qualified_forms": 0
+    },
+    {
+      "project": "Instagram__LibCST",
+      "domain": "language_compilers",
+      "files": 335,
+      "candidate_bindings": 0,
+      "qualified_bindings": 0,
+      "qualified_name_blocked_bindings": 0,
+      "annassign_blocked_bindings": 0,
+      "candidate_forms": 0,
+      "qualified_forms": 0
+    },
+    {
+      "project": "mahmoud__boltons",
+      "domain": "data_structures",
+      "files": 65,
+      "candidate_bindings": 0,
+      "qualified_bindings": 0,
+      "qualified_name_blocked_bindings": 0,
+      "annassign_blocked_bindings": 0,
+      "candidate_forms": 0,
+      "qualified_forms": 0
+    },
+    {
+      "project": "ManimCommunity__manim",
+      "domain": "graphics_games",
+      "files": 330,
+      "candidate_bindings": 0,
+      "qualified_bindings": 0,
+      "qualified_name_blocked_bindings": 0,
+      "annassign_blocked_bindings": 0,
+      "candidate_forms": 0,
+      "qualified_forms": 0
+    },
+    {
+      "project": "mpmath__mpmath",
+      "domain": "numeric",
+      "files": 146,
+      "candidate_bindings": 0,
+      "qualified_bindings": 0,
+      "qualified_name_blocked_bindings": 0,
+      "annassign_blocked_bindings": 0,
+      "candidate_forms": 0,
+      "qualified_forms": 0
+    },
+    {
+      "project": "pallets__click",
+      "domain": "tooling",
+      "files": 77,
+      "candidate_bindings": 0,
+      "qualified_bindings": 0,
+      "qualified_name_blocked_bindings": 0,
+      "annassign_blocked_bindings": 0,
+      "candidate_forms": 0,
+      "qualified_forms": 0
+    },
+    {
+      "project": "pallets__flask",
+      "domain": "web",
+      "files": 83,
+      "candidate_bindings": 0,
+      "qualified_bindings": 0,
+      "qualified_name_blocked_bindings": 0,
+      "annassign_blocked_bindings": 0,
+      "candidate_forms": 0,
+      "qualified_forms": 0
+    },
+    {
+      "project": "psf__black",
+      "domain": "language_compilers",
+      "files": 336,
+      "candidate_bindings": 0,
+      "qualified_bindings": 0,
+      "qualified_name_blocked_bindings": 0,
+      "annassign_blocked_bindings": 0,
+      "candidate_forms": 0,
+      "qualified_forms": 0
+    },
+    {
+      "project": "PyCQA__astroid",
+      "domain": "language_compilers",
+      "files": 269,
+      "candidate_bindings": 0,
+      "qualified_bindings": 0,
+      "qualified_name_blocked_bindings": 0,
+      "annassign_blocked_bindings": 0,
+      "candidate_forms": 0,
+      "qualified_forms": 0
+    },
+    {
+      "project": "pydantic__pydantic",
+      "domain": "web",
+      "files": 405,
+      "candidate_bindings": 0,
+      "qualified_bindings": 0,
+      "qualified_name_blocked_bindings": 0,
+      "annassign_blocked_bindings": 0,
+      "candidate_forms": 0,
+      "qualified_forms": 0
+    },
+    {
+      "project": "pyglet__pyglet",
+      "domain": "graphics_games",
+      "files": 466,
+      "candidate_bindings": 0,
+      "qualified_bindings": 0,
+      "qualified_name_blocked_bindings": 0,
+      "annassign_blocked_bindings": 0,
+      "candidate_forms": 0,
+      "qualified_forms": 0
+    },
+    {
+      "project": "pytest-dev__pytest",
+      "domain": "tooling",
+      "files": 270,
+      "candidate_bindings": 0,
+      "qualified_bindings": 0,
+      "qualified_name_blocked_bindings": 0,
+      "annassign_blocked_bindings": 0,
+      "candidate_forms": 0,
+      "qualified_forms": 0
+    },
+    {
+      "project": "python-attrs__attrs",
+      "domain": "data_structures",
+      "files": 54,
+      "candidate_bindings": 0,
+      "qualified_bindings": 0,
+      "qualified_name_blocked_bindings": 0,
+      "annassign_blocked_bindings": 0,
+      "candidate_forms": 0,
+      "qualified_forms": 0
+    },
+    {
+      "project": "python-poetry__poetry",
+      "domain": "tooling",
+      "files": 441,
+      "candidate_bindings": 0,
+      "qualified_bindings": 0,
+      "qualified_name_blocked_bindings": 0,
+      "annassign_blocked_bindings": 0,
+      "candidate_forms": 0,
+      "qualified_forms": 0
+    },
+    {
+      "project": "python__mypy",
+      "domain": "language_compilers",
+      "files": 441,
+      "candidate_bindings": 1,
+      "qualified_bindings": 0,
+      "qualified_name_blocked_bindings": 0,
+      "annassign_blocked_bindings": 0,
+      "candidate_forms": 1,
+      "qualified_forms": 0
+    },
+    {
+      "project": "pythonarcade__arcade",
+      "domain": "graphics_games",
+      "files": 691,
+      "candidate_bindings": 0,
+      "qualified_bindings": 0,
+      "qualified_name_blocked_bindings": 0,
+      "annassign_blocked_bindings": 0,
+      "candidate_forms": 0,
+      "qualified_forms": 0
+    },
+    {
+      "project": "statsmodels__statsmodels",
+      "domain": "numeric",
+      "files": 1216,
+      "candidate_bindings": 0,
+      "qualified_bindings": 0,
+      "qualified_name_blocked_bindings": 0,
+      "annassign_blocked_bindings": 0,
+      "candidate_forms": 0,
+      "qualified_forms": 0
+    },
+    {
+      "project": "sympy__sympy",
+      "domain": "numeric",
+      "files": 1599,
+      "candidate_bindings": 0,
+      "qualified_bindings": 0,
+      "qualified_name_blocked_bindings": 0,
+      "annassign_blocked_bindings": 0,
+      "candidate_forms": 0,
+      "qualified_forms": 0
+    },
+    {
+      "project": "Textualize__rich",
+      "domain": "tooling",
+      "files": 213,
+      "candidate_bindings": 0,
+      "qualified_bindings": 0,
+      "qualified_name_blocked_bindings": 0,
+      "annassign_blocked_bindings": 0,
+      "candidate_forms": 0,
+      "qualified_forms": 0
+    },
+    {
+      "project": "tiangolo__fastapi",
+      "domain": "web",
+      "files": 1127,
+      "candidate_bindings": 0,
+      "qualified_bindings": 0,
+      "qualified_name_blocked_bindings": 0,
+      "annassign_blocked_bindings": 0,
+      "candidate_forms": 0,
+      "qualified_forms": 0
+    },
+    {
+      "project": "tobgu__pyrsistent",
+      "domain": "data_structures",
+      "files": 42,
+      "candidate_bindings": 0,
+      "qualified_bindings": 0,
+      "qualified_name_blocked_bindings": 0,
+      "annassign_blocked_bindings": 0,
+      "candidate_forms": 0,
+      "qualified_forms": 0
+    },
+    {
+      "project": "viblo__pymunk",
+      "domain": "graphics_games",
+      "files": 125,
+      "candidate_bindings": 0,
+      "qualified_bindings": 0,
+      "qualified_name_blocked_bindings": 0,
+      "annassign_blocked_bindings": 0,
+      "candidate_forms": 0,
+      "qualified_forms": 0
+    }
+  ]
+}

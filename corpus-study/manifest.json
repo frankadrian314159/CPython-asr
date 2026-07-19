@@ -1,0 +1,37 @@
+{
+  "_comment": "Corpus for the Python ASR pattern study, mirroring docs/cgo2027/corpus-study's Clojure manifest: diverse real projects across the same 7 domain categories. Unlike the Clojure study, this is a DIRECT measurement (cpython-asr targets Python natively, not a proxy language).",
+  "repos": [
+    {"domain": "numeric", "org_repo": "sympy/sympy", "url": "https://github.com/sympy/sympy.git"},
+    {"domain": "numeric", "org_repo": "astropy/astropy", "url": "https://github.com/astropy/astropy.git"},
+    {"domain": "numeric", "org_repo": "hgrecco/pint", "url": "https://github.com/hgrecco/pint.git"},
+    {"domain": "numeric", "org_repo": "mpmath/mpmath", "url": "https://github.com/mpmath/mpmath.git"},
+    {"domain": "numeric", "org_repo": "statsmodels/statsmodels", "url": "https://github.com/statsmodels/statsmodels.git"},
+
+    {"domain": "graphics_games", "org_repo": "pyglet/pyglet", "url": "https://github.com/pyglet/pyglet.git"},
+    {"domain": "graphics_games", "org_repo": "pythonarcade/arcade", "url": "https://github.com/pythonarcade/arcade.git"},
+    {"domain": "graphics_games", "org_repo": "viblo/pymunk", "url": "https://github.com/viblo/pymunk.git"},
+    {"domain": "graphics_games", "org_repo": "ManimCommunity/manim", "url": "https://github.com/ManimCommunity/manim.git"},
+
+    {"domain": "data_structures", "org_repo": "tobgu/pyrsistent", "url": "https://github.com/tobgu/pyrsistent.git"},
+    {"domain": "data_structures", "org_repo": "grantjenks/python-sortedcontainers", "url": "https://github.com/grantjenks/python-sortedcontainers.git"},
+    {"domain": "data_structures", "org_repo": "python-attrs/attrs", "url": "https://github.com/python-attrs/attrs.git"},
+    {"domain": "data_structures", "org_repo": "mahmoud/boltons", "url": "https://github.com/mahmoud/boltons.git"},
+
+    {"domain": "language_compilers", "org_repo": "python/mypy", "url": "https://github.com/python/mypy.git"},
+    {"domain": "language_compilers", "org_repo": "psf/black", "url": "https://github.com/psf/black.git"},
+    {"domain": "language_compilers", "org_repo": "Instagram/LibCST", "url": "https://github.com/Instagram/LibCST.git"},
+    {"domain": "language_compilers", "org_repo": "davidhalter/parso", "url": "https://github.com/davidhalter/parso.git"},
+    {"domain": "language_compilers", "org_repo": "PyCQA/astroid", "url": "https://github.com/PyCQA/astroid.git"},
+
+    {"domain": "web", "org_repo": "pallets/flask", "url": "https://github.com/pallets/flask.git"},
+    {"domain": "web", "org_repo": "tiangolo/fastapi", "url": "https://github.com/tiangolo/fastapi.git"},
+    {"domain": "web", "org_repo": "encode/starlette", "url": "https://github.com/encode/starlette.git"},
+    {"domain": "web", "org_repo": "pydantic/pydantic", "url": "https://github.com/pydantic/pydantic.git"},
+    {"domain": "web", "org_repo": "encode/httpx", "url": "https://github.com/encode/httpx.git"},
+
+    {"domain": "tooling", "org_repo": "pallets/click", "url": "https://github.com/pallets/click.git"},
+    {"domain": "tooling", "org_repo": "Textualize/rich", "url": "https://github.com/Textualize/rich.git"},
+    {"domain": "tooling", "org_repo": "python-poetry/poetry", "url": "https://github.com/python-poetry/poetry.git"},
+    {"domain": "tooling", "org_repo": "pytest-dev/pytest", "url": "https://github.com/pytest-dev/pytest.git"}
+  ]
+}

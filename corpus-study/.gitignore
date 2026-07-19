@@ -1,0 +1,6 @@
+# Cloned corpus (large; reproduce via `python fetch.py`) and scratch logs.
+# results.json, results-classify.json, and manifest.lock.json ARE committed:
+# they are the evidence and the pinned SHAs behind this study's numbers.
+/corpus/
+*_progress.log
+__pycache__/
