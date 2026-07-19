@@ -46,19 +46,37 @@ def register(module_name, class_name, fields, mode):
     return cell
 
 
+def _is_docstring_stmt(stmt):
+    """A bare string-literal expression statement -- the function's own
+    docstring at body[0], or (v1.6) a per-attribute docstring comment
+    immediately following a field assignment, a standard Sphinx-style
+    documentation idiom (self.x: T = x, then a bare string literal on
+    the next line documenting x) -- motivated directly by cpython-asr's
+    own corpus study, see corpus-study/README.md (arcade's CameraData
+    uses this exact shape). Skipped wherever it appears, not just at
+    body[0]."""
+    return (
+        isinstance(stmt, ast.Expr)
+        and isinstance(stmt.value, ast.Constant)
+        and isinstance(stmt.value.value, str)
+    )
+
+
 def _infer_plain_class_fields(cls):
     """Infer a plain (non-dataclass) class's field set by introspecting
     __init__'s source for a flat sequence of `self.<name> = <name>` or
     `self.<name>: Type = <name>` (v1.6 -- a standard modern, type-hinted
     idiom, motivated directly by cpython-asr's own corpus study, see
     corpus-study/README.md) assignments -- one per parameter, in order,
-    name for name. Returns an ordered tuple of field names, or None if
-    __init__ is missing, its source isn't available, or its body does
-    anything more complex (computed values, conditional logic, a call to
-    super().__init__, reordered or partial assignment, a bare annotation
-    with no value, etc.). Deliberately narrow and conservative -- good
-    enough to recognize the common case, safe-by-abort otherwise, same
-    discipline as every other shape this project recognizes."""
+    name for name -- with any bare-string "docstring" statement ignored
+    wherever it appears (v1.6, see _is_docstring_stmt). Returns an
+    ordered tuple of field names, or None if __init__ is missing, its
+    source isn't available, or its body does anything more complex
+    (computed values, conditional logic, a call to super().__init__,
+    reordered or partial assignment, a bare annotation with no value,
+    etc.). Deliberately narrow and conservative -- good enough to
+    recognize the common case, safe-by-abort otherwise, same discipline
+    as every other shape this project recognizes."""
     init = cls.__dict__.get("__init__")
     if init is None or not inspect.isfunction(init):
         return None
@@ -75,17 +93,10 @@ def _infer_plain_class_fields(cls):
         return None
     param_names = params[1:]
 
-    body = init_def.body
-    if (
-        body
-        and isinstance(body[0], ast.Expr)
-        and isinstance(body[0].value, ast.Constant)
-        and isinstance(body[0].value.value, str)
-    ):
-        body = body[1:]
-
     fields = []
-    for stmt in body:
+    for stmt in init_def.body:
+        if _is_docstring_stmt(stmt):
+            continue
         if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1:
             target, value = stmt.targets[0], stmt.value
         elif isinstance(stmt, ast.AnnAssign) and stmt.value is not None:

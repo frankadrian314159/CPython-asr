@@ -8,9 +8,14 @@ docs/cgo2027/corpus-study/src/asr_corpus/classify.clj in the FOL repo.
 What's ported, closely mirroring the real implementation:
   - guard.class_fields: dataclass field order from annotations, or a
     plain class's fields inferred from a flat `self.name = name` OR
-    `self.name: Type = name` (v1.6) sequence in __init__ (same
-    restriction as guard._infer_plain_class_fields -- computed values,
-    reordering, or anything else aborts inference).
+    `self.name: Type = name` (v1.6) sequence in __init__, with any bare
+    string-literal "docstring" statement skipped wherever it appears --
+    including a per-attribute docstring immediately following a field
+    assignment (v1.6, motivated by arcade's CameraData: found and fixed
+    while re-auditing this exact corpus after the first two v1.6 fixes
+    -- see corpus-study/README.md) -- same restriction as
+    guard._infer_plain_class_fields otherwise: computed values,
+    reordering, or anything else aborts inference.
   - guard.mutation_safe: a class with its own __setattr__ is never
     mutate-mode-safe.
   - _classify_accumulator_class: frozen dataclass -> reconstruct mode;
@@ -126,13 +131,27 @@ def _dataclass_fields(class_def):
     return tuple(fields)
 
 
+def _is_docstring_stmt(stmt):
+    """A bare string-literal expression statement -- the function's own
+    docstring at body[0], or (v1.6) a per-attribute docstring comment
+    immediately following a field assignment, a standard Sphinx-style
+    documentation idiom -- ports guard._is_docstring_stmt. Skipped
+    wherever it appears, not just at body[0]."""
+    return (
+        isinstance(stmt, ast.Expr)
+        and isinstance(stmt.value, ast.Constant)
+        and isinstance(stmt.value.value, str)
+    )
+
+
 def _infer_plain_class_fields(class_def):
     """Ports guard._infer_plain_class_fields exactly: __init__'s body
     must be a flat sequence of `self.<name> = <name>` or
     `self.<name>: Type = <name>` (v1.6 -- ast.AnnAssign, a standard
     modern, type-hinted idiom) assignments, one per parameter, in order
-    -- name for name, no reordering, nothing computed. Returns an
-    ordered tuple, or None if not inferable."""
+    -- name for name, no reordering, nothing computed -- with any bare
+    string "docstring" statement ignored wherever it appears (v1.6).
+    Returns an ordered tuple, or None if not inferable."""
     init = next(
         (s for s in class_def.body if isinstance(s, ast.FunctionDef) and s.name == "__init__"),
         None,
@@ -144,17 +163,10 @@ def _infer_plain_class_fields(class_def):
         return None
     param_names = params[1:]
 
-    body = init.body
-    if (
-        body
-        and isinstance(body[0], ast.Expr)
-        and isinstance(body[0].value, ast.Constant)
-        and isinstance(body[0].value.value, str)
-    ):
-        body = body[1:]
-
     fields = []
-    for stmt in body:
+    for stmt in init.body:
+        if _is_docstring_stmt(stmt):
+            continue
         if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1:
             target, value = stmt.targets[0], stmt.value
         elif isinstance(stmt, ast.AnnAssign) and stmt.value is not None:

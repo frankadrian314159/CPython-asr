@@ -115,16 +115,17 @@ the shape this technique targets.
 
 ## Results — gate-faithful pass (`classify.py`)
 
-**v1.6 update**: two of the gaps this study originally surfaced —
-module-qualified construction and annotated self-assignment — have since
-been fixed in `asr/transform.py`/`asr/guard.py` (see `_resolve_ctor_class`,
-`_call_target_matches_class`, and `guard._infer_plain_class_fields`'s
-`ast.AnnAssign` support), verified against the real `@asr` decorator with
-new passing tests (`tests/test_qualified_calls.py`,
-`tests/test_mutation.py`'s new annotated-field cases), and `classify.py`
-was updated to match — it no longer has separate "blocked by X" diagnostic
-buckets for these two, because they're no longer blocked; they're part of
-real qualification now. The corpus was then re-run:
+**v1.6 update**: three narrow, real gaps this study surfaced have since been
+fixed in `asr/transform.py`/`asr/guard.py` — module-qualified construction
+(`_resolve_ctor_class`, `_call_target_matches_class`), annotated
+self-assignment (`guard._infer_plain_class_fields`'s `ast.AnnAssign`
+support), and interspersed attribute docstrings
+(`guard._is_docstring_stmt`, which now skips a bare string-literal
+statement wherever it appears in `__init__`, not just at `body[0]`) — each
+verified against the real `@asr` decorator with new passing tests
+(`tests/test_qualified_calls.py`, `tests/test_mutation.py`'s new
+annotated-field and per-attribute-docstring cases), and `classify.py` was
+updated to match after each one. The corpus was re-run after all three:
 
 ```
 Projects: 27   Files: 10074
@@ -134,16 +135,23 @@ Individual accumulator-binding candidates: 1
   of which qualify under the REAL gates: 0 (0.00%)
 ```
 
-**Unchanged from the pre-fix run**: still only the one mypy `class_info`
-site (a genuine escape, see below) reaches real-gate evaluation, and nothing
-newly qualifies. This is not a null result on the two fixes — both are
-independently verified, tested, and confirmed to work against the exact
-shapes they targeted (see the `CameraData` case study below) — it means
-this specific 27-project corpus's near-miss sites were blocked by *other*
-factors that happened to co-occur, discovered while re-auditing after the
-fix. The syntactic-shape proxy (142 sites, 5.05%) still dramatically
-overstates real applicability; the reasons why are now better understood,
-not resolved.
+**Still unchanged.** `CameraData` — the real corpus class that motivated
+all three fixes — now correctly *registers* as a qualifying class (`mode=
+'mutate', fields=('position', 'up', 'forward', 'zoom')`, confirmed directly
+against the live corpus source, not just the reduced repro). But re-tracing
+its only actual usage in this corpus (two sites, both in
+`arcade/tests/unit/camera/test_camera_controller_methods.py`) turned up a
+**fourth, independent, and harder gap**: both call sites are
+`CameraData()` — zero arguments, relying entirely on `__init__`'s own
+default values for all four fields. `transform.py`'s
+`_ctor_supplies_all_fields` requires every field to be supplied
+*explicitly* at the call site (it extracts each field's initial value
+straight from the AST arguments — there's no default-value lookup or
+evaluation mechanism at all), so this correctly declines too. Unlike the
+first three, this one isn't a narrow recognition fix: supporting
+defaulted arguments would mean introspecting `__init__`'s own default
+expressions and either evaluating or symbolically threading them through
+the scalar-init logic — a real, separate feature, not attempted here.
 
 ### Why almost nothing reaches the real gate
 
@@ -153,16 +161,15 @@ one is a hand-written class with its own `__init__`. This matters because
 `guard._infer_plain_class_fields` — confirmed against the actual
 `asr/guard.py` source, not assumed — only accepts an `__init__` body that
 is a *flat, unconditional* sequence of `self.<name> = <name>` or (v1.6)
-`self.<name>: Type = <name>` assignments, one per parameter, in order.
-Real `__init__` bodies routinely do more: compute derived fields, apply
-defaults, coerce types, call `super().__init__()`, branch, or (newly
-discovered, see below) intersperse per-attribute documentation strings —
-every one of those aborts inference.
+`self.<name>: Type = <name>` assignments (with any bare-string docstring
+statement skipped, v1.6), one per parameter, in order. Real `__init__`
+bodies routinely do more: compute derived fields, apply defaults, coerce
+types, call `super().__init__()`, or branch — every one of those still
+aborts inference.
 
-Three gaps have now been isolated and confirmed by hand against
+Four gaps have now been isolated and confirmed by hand against
 `transform.py`/`guard.py`'s actual source (not assumed from the syntactic
-pass) — two fixed in v1.6, one newly found while re-auditing after the fix
-and left unfixed (out of the scope of what was asked for this round):
+pass) — three fixed in v1.6, one left unfixed as a real, separate feature:
 
 - **Module-qualified construction** (`p = arcade.SpriteSolidColor(...)`,
   from `import arcade` rather than `from arcade import SpriteSolidColor`)
@@ -171,23 +178,19 @@ and left unfixed (out of the scope of what was asked for this round):
   position`, a standard modern, type-hinted idiom) — **fixed in v1.6.**
 - **Interspersed attribute docstrings** (a bare string-literal statement
   immediately after each field assignment — Sphinx-style per-attribute
-  documentation, e.g. `self.x: float = x` followed on the next line by
-  `"""A vector which..."""`) — **newly discovered, not fixed.** `guard.
-  _infer_plain_class_fields` only strips a single docstring at
-  `body[0]` (the function-level one); it doesn't recognize or skip a bare
-  string `Expr` statement appearing *between* field assignments, so any
-  `__init__` using this documentation style fails inference regardless of
-  the first two fixes. Confirmed directly against the real `@asr`
-  decorator with a reduced repro of `CameraData`'s exact shape (see case
-  study below) — this is precisely why fixing the first two gaps didn't
-  change this corpus's measured result: `CameraData` needed all three to
-  register, and still only has two.
+  documentation) — **fixed in v1.6.**
+- **Defaulted constructor arguments** (`CameraData()`, relying on
+  `__init__`'s own defaults rather than supplying every field explicitly)
+  — **not fixed**, a genuinely different and larger feature, not a narrow
+  recognition gap like the other three.
 
-All three are the same *kind* of gap — narrow, additive, and safely
+The first three are the same *kind* of gap — narrow, additive, and safely
 fixable without touching the escape-analysis or field-matching logic that
 actually does the safety-critical work — unlike the Clojure PLDI study's
-`:aliased-reference` category, which is structural. The third one is a
-natural next candidate if this line of work continues.
+`:aliased-reference` category, which is structural. The fourth is closer
+in spirit to that structural category, just for a different underlying
+reason (missing information, not aliasing): the AST at the call site
+genuinely doesn't contain the field's initial value at all.
 
 ### Case studies (hand-audited)
 
@@ -195,7 +198,7 @@ natural next candidate if this line of work continues.
 |---|---|---|---|
 | `SievePolynomial` | `sympy/ntheory/qs.py` | correctly declined | `__init__` computes derived fields (`self.a2 = a**2`), not a flat passthrough |
 | `Production` | `astropy/extern/ply/yacc.py` (vendored PLY parser) | correctly declined | `__init__` has 10+ statements: list construction, string formatting, more locals than parameters |
-| `CameraData` | `arcade/camera/data_types.py` | correctly declined, for a **third, previously-undiscovered reason** | originally blocked by TWO now-fixed gaps (module-qualified `camera.CameraData(...)` construction, annotated `self.position: tuple[...] = position`) — re-auditing after the v1.6 fix revealed a THIRD, independent blocker: each field assignment is immediately followed by its own string-literal "attribute docstring," which `guard._infer_plain_class_fields` doesn't recognize as skippable. Confirmed directly against the real decorator with a reduced repro matching this exact shape. |
+| `CameraData` | `arcade/camera/data_types.py` | class now registers correctly; its two actual usage sites still correctly decline, for a **fourth, independent reason** | originally blocked by THREE now-fixed gaps (module-qualified construction, annotated self-assignment, interspersed attribute docstrings) — with the class itself now fully recognized, tracing its only real usage (both in a test file) revealed a fourth blocker: `CameraData()` with zero arguments, relying on `__init__`'s own defaults, which `_ctor_supplies_all_fields` can't see at all. |
 | `class_info` (`ClassInfo`) | `mypy/stubgenc.py:827` | the one real candidate; **correctly declined for a genuine escape** | `class_info` is passed as a bare argument to several helper methods (`is_method`, `is_staticmethod`, `generate_function_stub`) inside the loop — exactly the aliasing hazard the escape check exists to catch. This is the Python-native instance of the Clojure/FOL papers' `:aliased-reference` category: **structurally unfixable**, not an analysis gap. |
 
 The `class_info` case is worth dwelling on: it's a real, independent
@@ -210,9 +213,14 @@ piece of evidence that the escape check generalizes.
 The `CameraData` case is worth dwelling on too, for the opposite reason:
 it's a concrete illustration of how a single real-world class can be
 blocked by *multiple, independently-fixable* gaps stacked on top of each
-other — fixing two of three doesn't change the outcome for that specific
-site, even though both fixes are individually correct and each unlocks
-other, different hypothetical code. A corpus of one is not evidence either
+other — fixing three of the four doesn't change the outcome for that
+specific site, even though all three fixes are individually correct and
+each unlocks other, different hypothetical code. A corpus of one is not
+evidence any fix was pointless; it's evidence that this particular
+corpus's few near-miss sites happen to be unusually gap-stacked, which is
+itself informative about what real-world `__init__` bodies actually look
+like — and that "the class now qualifies" and "a specific call site to it
+qualifies" are two different, independently-checked conditions.
 fix was pointless; it's evidence that this particular corpus's few
 near-miss sites happen to be unusually gap-stacked, which is itself
 informative about what real-world `__init__` bodies actually look like.
@@ -254,13 +262,16 @@ state classes that carry this pattern in these particular 27 projects.
    restriction would be — verified necessary during development (an
    earlier per-file version undercounted `arcade` by conflating "class
    defined in a different file" with "class doesn't exist").
-5. This study has now been re-run once after fixing two of its own
-   findings (module-qualified construction, annotated self-assignment),
-   and the corpus-measured result didn't move (`CameraData` needed a
-   third, still-unfixed gap too) — a reminder that a single-corpus
-   before/after comparison can look like "the fix didn't matter" even
-   when the fix is independently correct and tested; it just means this
-   particular corpus's remaining near-misses aren't the fix's target.
+5. This study has now been re-run twice, after fixing three of its own
+   findings one at a time (module-qualified construction, annotated
+   self-assignment, interspersed attribute docstrings), and the
+   corpus-measured result never moved (`CameraData`, the site that
+   motivated all three, needed a fourth, unrelated, and unfixed gap too)
+   — a reminder that a single-corpus before/after comparison can look
+   like "the fix didn't matter" even when every fix is independently
+   correct, tested, and confirmed against the exact real-world shape it
+   targeted; it just means this particular corpus's remaining near-misses
+   keep landing on a different gap each time.
 
 ## Usage
 

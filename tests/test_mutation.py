@@ -144,6 +144,45 @@ def test_plain_class_with_mixed_annotated_and_unannotated_fields():
     _check_dual_path(transformed, cell, 11, expected)
 
 
+class _PerAttributeDocstringPoint(object):
+    """v1.6: a per-attribute docstring immediately following each field
+    assignment -- a standard Sphinx-style documentation idiom
+    (`self.x: float = x` then a bare string literal on the next line
+    documenting x), found in arcade's CameraData while re-auditing the
+    corpus study after the module-qualified-call and annotated-
+    self-assignment fixes. guard._infer_plain_class_fields now skips
+    any bare string-literal statement wherever it appears, not just
+    body[0]'s function-level docstring."""
+
+    def __init__(self, x: float, y: float):
+        self.x: float = x
+        "A vector which describes the x position."
+
+        self.y: float = y
+        "A vector which describes the y position."
+
+    def __eq__(self, other):
+        return isinstance(other, _PerAttributeDocstringPoint) and self.x == other.x and self.y == other.y
+
+
+def _run_per_attribute_docstring(n):
+    p = _PerAttributeDocstringPoint(0.0, 0.0)
+    i = 0
+    while i < n:
+        p.x = p.x + 1.0
+        p.y = p.y + 2.0
+        i += 1
+    return p
+
+
+def test_plain_class_with_per_attribute_docstrings():
+    expected = _run_per_attribute_docstring(13)
+    transformed = try_transform(_run_per_attribute_docstring)
+    assert transformed is not None
+    cell = _cell_for(_run_per_attribute_docstring.__module__, "_PerAttributeDocstringPoint")
+    _check_dual_path(transformed, cell, 13, expected)
+
+
 @dataclasses.dataclass
 class _ConditionalPoint(object):
     x: float
@@ -456,6 +495,29 @@ def test_declines_plain_class_with_computed_annotated_init_body():
     recognized (`self.x: T = x`), not what counts as "flat" -- a
     computed value is still declined even when annotated."""
     assert try_transform(_run_plain_with_computed_annotated_init) is None
+
+
+class _ComputedInitWithDocstringPlain(object):
+    def __init__(self, x: float):
+        self.x: float = x * 2
+        "a per-attribute docstring on an otherwise-computed field"
+
+
+def _run_plain_with_computed_init_and_docstring(n):
+    p = _ComputedInitWithDocstringPlain(0.0)
+    i = 0
+    while i < n:
+        p.x = p.x + 1.0
+        i += 1
+    return p
+
+
+def test_declines_plain_class_with_computed_init_even_with_docstring():
+    """The per-attribute-docstring skip (v1.6) only ignores bare
+    string-literal statements -- it doesn't loosen the flat-passthrough
+    requirement for the assignments themselves; a computed value is
+    still declined even when immediately followed by its own docstring."""
+    assert try_transform(_run_plain_with_computed_init_and_docstring) is None
 
 
 class _BareAnnotationPlain(object):
