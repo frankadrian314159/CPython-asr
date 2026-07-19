@@ -48,6 +48,41 @@ than re-testing the raw subject per case -- see
 `_try_match_reconstruction`'s docstring and the `prelude` plumbing in
 `_analyze_loop_body`/`_rewrite_loop_body`.
 
+v1.4 adds a second, structurally different unboxing strategy for
+accumulators FOL never had to consider, because FOL's own persistent
+records are always immutable: non-frozen (mutable) dataclasses and
+plain classes (no `@dataclass` at all). These can't be "reconstructed"
+-- there's nothing to peel apart a constructor call into -- but they
+CAN be mutated in place, which is in fact their idiomatic usage
+pattern: `p.x = p.x + 1.0` instead of `p = Point(p.x + 1.0, p.y)`. This
+is unboxed by a much simpler walk than reconstruction (see
+`_analyze_mutation_loop_body`): every `var_name.field` access anywhere
+in the loop, read OR write, wherever it occurs -- including inside
+if/match/nested blocks, with no special-casing needed, unlike branch-
+or match-shaped reconstruction -- is substituted in place for a scalar
+local. There's no reconstruction-style temp staging either: since each
+substitution happens exactly where the original statement was,
+ordinary sequential Python execution already gives correct
+read-before-write semantics for free. The accumulator's real object is
+never mutated during the loop (every field access redirects to a
+scalar); the real object's fields are written back, once, immediately
+before the function returns it -- preserving its identity, and
+critically, only reachable at all once every OTHER reference to it has
+already been ruled out by the same escape analysis reconstruction mode
+uses (a mutable object aliased elsewhere while its fields are shadowed
+by scalars would be a real correctness hazard, not just a missed
+optimization -- see `guard.mutation_safe` for the matching hazard this
+closes on the class side: a class whose `__setattr__` is overridden,
+or a frozen dataclass, is never treated as mutate-mode, since the
+batched final writeback would silently skip whatever a custom
+`__setattr__` does on every OTHER iteration).
+
+Plain classes have no `dataclasses.fields()` to consult for their field
+set, so it's inferred from `__init__`'s own source: a flat sequence of
+`self.<name> = <name>` assignments, one per parameter, in order (see
+`guard.class_fields`/`guard._infer_plain_class_fields`) -- narrow and
+conservative, same discipline as everything else here.
+
 Scope still deliberately narrow otherwise: the only supported post-loop
 shape is a single trailing `return p` (one accumulator) or
 `return p, q, ...` (naming exactly the processed accumulators, FOL's
@@ -57,7 +92,6 @@ miscompiled -- the same safe-by-abort discipline FOL's own walk uses.
 
 import ast
 import copy
-import dataclasses
 import inspect
 import textwrap
 
@@ -455,14 +489,47 @@ def _try_match_reconstruction(match_node, var_name, class_name, fields):
 # Phase 1: qualification
 # --------------------------------------------------------------------------
 
-def _find_accumulator(pre_loop_stmts, globalns):
+def _classify_accumulator_class(cls):
+    """Returns ("reconstruct", fields) for a frozen dataclass -- the
+    original v1 shape, unboxed by peeling apart each iteration's
+    constructor call -- or ("mutate", fields) for a non-frozen
+    (mutable) dataclass or a plain class whose fields
+    guard.class_fields can infer AND whose instances are safe to write
+    to directly per guard.mutation_safe -- unboxed by redirecting
+    field reads/writes to scalars in place instead (v1.4). Returns
+    None if cls doesn't qualify under either shape. guard.class_fields
+    and guard.mutation_safe are the single source of truth this shares
+    with the world guard's own reload-time invalidation, so both
+    always agree on what "this class's fields" and "safe to mutate"
+    mean."""
+    if not isinstance(cls, type):
+        return None
+    fields = guard.class_fields(cls)
+    if fields is None:
+        return None
+    params = getattr(cls, "__dataclass_params__", None)
+    if params is not None and params.frozen:
+        return "reconstruct", fields
+    if not guard.mutation_safe(cls):
+        return None
+    return "mutate", fields
+
+
+def _find_accumulator(pre_loop_stmts, globalns, already_processed):
     """Scan the statements before the while loop for `p = ClassName(...)`
-    where ClassName is a frozen dataclass and the call supplies exactly
-    its fields. Returns (index, var_name, cls, fields). Called repeatedly
-    by the multi-accumulator fixpoint in _try_transform_inner: once an
-    accumulator is processed, its raw constructor assign is replaced by
-    scalar-init statements, so a re-scan naturally only finds ones not
-    yet processed -- no separate bookkeeping needed."""
+    where ClassName qualifies under _classify_accumulator_class and the
+    call supplies exactly its fields. Returns (index, var_name, cls,
+    fields, mode). Called repeatedly by the multi-accumulator fixpoint
+    in _try_transform_inner: for reconstruct-mode accumulators, once
+    processed, the raw constructor assign is replaced by scalar-init
+    statements, so a re-scan naturally only finds ones not yet
+    processed. Mutate-mode accumulators keep their original assign in
+    place (the real object must survive to be returned -- see
+    _process_one_accumulator), so `already_processed` (the set of
+    var_names already unboxed) is checked explicitly instead --
+    without it, a re-scan would keep re-discovering the FIRST
+    mutate-mode accumulator's still-present assign statement and never
+    reach a second one."""
     for i, stmt in enumerate(pre_loop_stmts):
         if not (
             isinstance(stmt, ast.Assign)
@@ -471,19 +538,19 @@ def _find_accumulator(pre_loop_stmts, globalns):
         ):
             continue
         var_name = stmt.targets[0].id
+        if var_name in already_processed:
+            continue
         call = stmt.value
         if not (isinstance(call, ast.Call) and isinstance(call.func, ast.Name)):
             continue
         cls = globalns.get(call.func.id)
-        if cls is None or not isinstance(cls, type) or not dataclasses.is_dataclass(cls):
+        classified = _classify_accumulator_class(cls)
+        if classified is None:
             continue
-        params = getattr(cls, "__dataclass_params__", None)
-        if params is None or not params.frozen:
-            continue
-        fields = tuple(f.name for f in dataclasses.fields(cls))
+        mode, fields = classified
         if not _ctor_supplies_all_fields(call, fields):
             continue
-        return i, var_name, cls, fields
+        return i, var_name, cls, fields, mode
     raise AsrDecline("no qualifying accumulator initializer found before the loop")
 
 
@@ -594,6 +661,15 @@ def _analyze_loop_body(while_node, var_name, class_name, fields, globalns):
         for child in ast.iter_child_nodes(node):
             visit(child)
 
+    # The loop TEST is walked too, not just the body: a while condition
+    # that reads a field (`while p.n < n:`) is legitimate and already
+    # handled correctly by _rewrite_loop_body's own substitution of
+    # while_node.test -- but without validating it here too, a typo'd
+    # field name, or a bare `p` in the condition, would slip past this
+    # check and only surface as an UnboundLocalError at runtime in the
+    # rewritten fast path (var_name's own assignment is fully replaced
+    # by scalar inits in reconstruct mode), not a safe decline.
+    visit(while_node.test)
     for stmt in while_node.body:
         visit(stmt)
 
@@ -601,6 +677,84 @@ def _analyze_loop_body(while_node, var_name, class_name, fields, globalns):
         raise AsrDecline("loop body has an unrecognized accumulator use")
     alias_names, field_values, prelude = result
     return reconstruction_stmt, alias_names, field_values, prelude
+
+
+# --------------------------------------------------------------------------
+# Mutation-based reconstruction (v1.4, non-frozen dataclasses & plain
+# classes -- FOL has no analog, since its persistent records are always
+# immutable)
+# --------------------------------------------------------------------------
+
+def _analyze_mutation_loop_body(while_node, var_name, fields):
+    """Walk the while loop's test and body confirming every reference
+    to var_name is a `var_name.field` attribute access -- read OR
+    write, for a known field -- wherever it occurs, with no bare
+    reference anywhere else. Unlike reconstruction, there's no single
+    'reconstruction statement' to find and no field_values to build:
+    mutable-object field writes are ordinary Python attribute
+    assignments, and substituting each one for a scalar Name in place
+    -- exactly where the original statement was -- already gives
+    correct read-before-write semantics for free, with none of
+    reconstruction mode's temp-staging needed. Raises AsrDecline if
+    var_name escapes anywhere, if any field is deleted (`del
+    p.field`), or if no field of it is ever written inside the loop
+    (nothing to scalarize -- not a loop-carried accumulator at all)."""
+    ok = True
+    any_write = False
+
+    def visit(node):
+        nonlocal ok, any_write
+        if not ok:
+            return
+        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.value.id == var_name:
+            if node.attr not in fields or isinstance(node.ctx, ast.Del):
+                ok = False
+                return
+            if isinstance(node.ctx, ast.Store):
+                any_write = True
+            return  # do not recurse into the Name('p') itself
+        if isinstance(node, ast.Name) and node.id == var_name:
+            ok = False  # a bare reference we don't recognize -> escape
+            return
+        for child in ast.iter_child_nodes(node):
+            visit(child)
+
+    visit(while_node.test)
+    for stmt in while_node.body:
+        visit(stmt)
+
+    if not ok or not any_write:
+        raise AsrDecline("loop body has an unrecognized mutable-accumulator use")
+
+
+class _MutationFieldSubstituter(ast.NodeTransformer):
+    """Replaces `var_name.field` (read OR write) with the corresponding
+    scalar Name, preserving the original Load/Store context."""
+
+    def __init__(self, var_name, scalar_names):
+        self.var_name = var_name
+        self.scalar_names = scalar_names
+
+    def visit_Attribute(self, node):
+        if (
+            isinstance(node.value, ast.Name)
+            and node.value.id == self.var_name
+            and node.attr in self.scalar_names
+        ):
+            new = ast.Name(id=self.scalar_names[node.attr], ctx=node.ctx)
+            return ast.copy_location(new, node)
+        return self.generic_visit(node)
+
+
+def _rewrite_mutation_loop_body(while_node, var_name, scalar_names):
+    subst = _MutationFieldSubstituter(var_name, scalar_names)
+    new_body = [subst.visit(copy.deepcopy(stmt)) for stmt in while_node.body]
+    new_while = ast.While(
+        test=subst.visit(copy.deepcopy(while_node.test)), body=new_body, orelse=[]
+    )
+    ast.copy_location(new_while, while_node)
+    ast.fix_missing_locations(new_while)
+    return new_while
 
 
 # --------------------------------------------------------------------------
@@ -630,6 +784,16 @@ class _FieldSubstituter(ast.NodeTransformer):
 
 def _mk_assign(target_name, value_expr, loc_from):
     stmt = ast.Assign(targets=[ast.Name(id=target_name, ctx=ast.Store())], value=value_expr)
+    ast.copy_location(stmt, loc_from)
+    ast.fix_missing_locations(stmt)
+    return stmt
+
+
+def _mk_attr_assign(obj_name, field, value_name, loc_from):
+    """`obj_name.field = value_name` -- used only for mutate mode's
+    final writeback (see _try_transform_inner's rebox)."""
+    target = ast.Attribute(value=ast.Name(id=obj_name, ctx=ast.Load()), attr=field, ctx=ast.Store())
+    stmt = ast.Assign(targets=[target], value=ast.Name(id=value_name, ctx=ast.Load()))
     ast.copy_location(stmt, loc_from)
     ast.fix_missing_locations(stmt)
     return stmt
@@ -703,26 +867,53 @@ def try_transform(func):
         return None
 
 
-def _process_one_accumulator(pre_loop_stmts, while_node, globalns, existing_names):
+def _process_one_accumulator(pre_loop_stmts, while_node, globalns, existing_names, already_processed):
     """One step of the multi-accumulator fixpoint: find the next
-    not-yet-processed qualifying accumulator and unbox it. Returns
+    not-yet-processed qualifying accumulator and unbox it -- via
+    reconstruction (frozen dataclasses) or in-place mutation (non-
+    frozen dataclasses, plain classes; v1.4). Returns
     (new_pre_loop_stmts, new_while_node, accumulator_info) where
-    accumulator_info has var_name/cls/fields/scalar_names, or raises
-    AsrDecline if no more candidates remain (the normal, expected way
-    the fixpoint terminates -- caught by the caller's loop, not
-    propagated)."""
-    accum_idx, var_name, cls, fields = _find_accumulator(pre_loop_stmts, globalns)
+    accumulator_info has var_name/cls/fields/scalar_names/mode, or
+    raises AsrDecline if no more candidates remain (the normal,
+    expected way the fixpoint terminates -- caught by the caller's
+    loop, not propagated)."""
+    accum_idx, var_name, cls, fields, mode = _find_accumulator(pre_loop_stmts, globalns, already_processed)
 
     for stmt in pre_loop_stmts[accum_idx + 1 :]:
         for node in ast.walk(stmt):
             if isinstance(node, ast.Name) and node.id == var_name:
                 raise AsrDecline("accumulator referenced between its init and the loop")
 
+    scalar_names = {f: _mangled_name(var_name, f) for f in fields}
+    accum_assign = pre_loop_stmts[accum_idx]
+    init_stmts = [
+        _mk_assign(
+            scalar_names[field],
+            copy.deepcopy(_ctor_field_value(accum_assign.value, fields, field)),
+            accum_assign,
+        )
+        for field in fields
+    ]
+
+    if mode == "mutate":
+        _analyze_mutation_loop_body(while_node, var_name, fields)
+        for name in scalar_names.values():
+            if name in existing_names:
+                raise AsrDecline(f"scalar name collision: {name}")
+        # Keep the original `p = ClassName(...)` statement -- mutate
+        # mode needs the REAL object to still exist: it's what gets
+        # returned, preserving the identity a caller of the
+        # unoptimized code would see, with its field writeback
+        # deferred to the very end (see _try_transform_inner's rebox).
+        new_pre_loop_stmts = pre_loop_stmts[: accum_idx + 1] + init_stmts + pre_loop_stmts[accum_idx + 1 :]
+        new_while_node = _rewrite_mutation_loop_body(while_node, var_name, scalar_names)
+        info = {"var_name": var_name, "cls": cls, "fields": fields, "scalar_names": scalar_names, "mode": mode}
+        return new_pre_loop_stmts, new_while_node, info
+
     reconstruction_stmt, alias_names, field_values, prelude = _analyze_loop_body(
         while_node, var_name, cls.__name__, fields, globalns
     )
 
-    scalar_names = {f: _mangled_name(var_name, f) for f in fields}
     candidate_names = (
         list(scalar_names.values())
         + [f"__asr_tmp_{n}" for n in scalar_names.values()]
@@ -745,21 +936,12 @@ def _process_one_accumulator(pre_loop_stmts, while_node, globalns, existing_name
             if name in inlined_names:
                 raise AsrDecline(f"scalar name collision in inlined expression: {name}")
 
-    accum_assign = pre_loop_stmts[accum_idx]
-    init_stmts = [
-        _mk_assign(
-            scalar_names[field],
-            copy.deepcopy(_ctor_field_value(accum_assign.value, fields, field)),
-            accum_assign,
-        )
-        for field in fields
-    ]
     new_pre_loop_stmts = pre_loop_stmts[:accum_idx] + init_stmts + pre_loop_stmts[accum_idx + 1 :]
     new_while_node = _rewrite_loop_body(
         while_node, alias_names, scalar_names, reconstruction_stmt, field_values, prelude
     )
 
-    info = {"var_name": var_name, "cls": cls, "fields": fields, "scalar_names": scalar_names}
+    info = {"var_name": var_name, "cls": cls, "fields": fields, "scalar_names": scalar_names, "mode": mode}
     return new_pre_loop_stmts, new_while_node, info
 
 
@@ -783,6 +965,23 @@ def _try_transform_inner(func):
     while_node = func_def.body[loop_idx]
     post_loop_stmts = list(func_def.body[loop_idx + 1 :])
 
+    # global/nonlocal are function-scope declarations, not branch-scope
+    # -- duplicating one into BOTH the fast path (via pre_loop_stmts)
+    # and the original body (the guarded if's else branch) confuses
+    # CPython's compiler ("name X is assigned to before global
+    # declaration"), even though the two branches are mutually
+    # exclusive at runtime. Hoisted once, above the guarded if/else,
+    # instead. Only the common case -- a top-level global/nonlocal
+    # statement before the loop -- is hoisted; one anywhere else (nested
+    # inside pre-loop control flow, or inside the loop body itself) is
+    # declined rather than risking that same SyntaxError.
+    all_global_nonlocal = [n for n in ast.walk(func_def) if isinstance(n, (ast.Global, ast.Nonlocal))]
+    hoisted_decls = [s for s in pre_loop_stmts if isinstance(s, (ast.Global, ast.Nonlocal))]
+    if len(all_global_nonlocal) != len(hoisted_decls):
+        raise AsrDecline("global/nonlocal declaration in an unsupported position")
+    pre_loop_stmts = [s for s in pre_loop_stmts if not isinstance(s, (ast.Global, ast.Nonlocal))]
+    original_body = [s for s in original_body if not isinstance(s, (ast.Global, ast.Nonlocal))]
+
     # The multi-accumulator fixpoint (FOL's maybe-scalar-replace-loop):
     # unbox one qualifying accumulator, re-scan the now-partially-
     # rewritten loop for another, repeat until none remain. Coupled
@@ -790,16 +989,18 @@ def _try_transform_inner(func):
     # handled correctly because each pass's rewrite of while_node is
     # visible to the next call to _analyze_loop_body.
     accumulators = []
+    already_processed = set()
     budget = 16  # safety backstop against pathological nesting; real loops carry a handful
     while budget > 0:
         budget -= 1
         try:
             pre_loop_stmts, while_node, info = _process_one_accumulator(
-                pre_loop_stmts, while_node, globalns, existing_names
+                pre_loop_stmts, while_node, globalns, existing_names, already_processed
             )
         except AsrDecline:
             break
         accumulators.append(info)
+        already_processed.add(info["var_name"])
 
     if not accumulators:
         raise AsrDecline("no qualifying accumulator initializer found before the loop")
@@ -834,7 +1035,7 @@ def _try_transform_inner(func):
     cls_keys = {}
     namespace = globalns  # the function's ACTUAL __globals__, not a copy -- see below
     for a in accumulators:
-        cell = guard.register(func.__module__, a["cls"].__name__, a["fields"])
+        cell = guard.register(func.__module__, a["cls"].__name__, a["fields"], a["mode"])
         cell_key = f"__asr_cell_{a['var_name']}_{func_def.name}"
         cls_key = f"__asr_cls_{a['var_name']}_{func_def.name}"
         cell_keys[a["var_name"]] = cell_key
@@ -843,22 +1044,42 @@ def _try_transform_inner(func):
         namespace[cls_key] = a["cls"]
 
     def rebox(name):
+        """Returns (writeback_stmts, value_expr) for accumulator `name`.
+        Reconstruct mode calls the constructor one more time, same as
+        every prior version. Mutate mode never re-invokes __init__ --
+        it writes the final scalars back into the real object (which
+        has sat untouched, its real attributes stale but never
+        observed, since every access during the loop redirected to a
+        scalar) and returns THAT object, preserving its identity."""
         a = accum_by_name[name]
+        if a["mode"] == "mutate":
+            writeback_stmts = [
+                _mk_attr_assign(name, f, a["scalar_names"][f], post_loop_stmts[0]) for f in a["fields"]
+            ]
+            value = ast.copy_location(ast.Name(id=name, ctx=ast.Load()), post_loop_stmts[0])
+            return writeback_stmts, value
         call = ast.Call(
             func=ast.Name(id=cls_keys[name], ctx=ast.Load()),
             args=[ast.Name(id=a["scalar_names"][f], ctx=ast.Load()) for f in a["fields"]],
             keywords=[],
         )
-        return ast.copy_location(call, post_loop_stmts[0])
+        return [], ast.copy_location(call, post_loop_stmts[0])
 
-    rebox_value = rebox(returned_names[0]) if isinstance(ret_value, ast.Name) else ast.Tuple(
-        elts=[rebox(n) for n in returned_names], ctx=ast.Load()
+    writeback_stmts = []
+    rebox_values = []
+    for n in returned_names:
+        stmts, value = rebox(n)
+        writeback_stmts.extend(stmts)
+        rebox_values.append(value)
+
+    rebox_value = rebox_values[0] if isinstance(ret_value, ast.Name) else ast.Tuple(
+        elts=rebox_values, ctx=ast.Load()
     )
     rebox_return = ast.Return(value=rebox_value)
     ast.copy_location(rebox_return, post_loop_stmts[0])
     ast.fix_missing_locations(rebox_return)
 
-    fast_body = pre_loop_stmts + [while_node, rebox_return]
+    fast_body = pre_loop_stmts + [while_node] + writeback_stmts + [rebox_return]
 
     # The fast path is only safe while EVERY processed accumulator's
     # class is still valid -- a boolean AND across all of them, the
@@ -887,7 +1108,7 @@ def _try_transform_inner(func):
     new_func_def = ast.FunctionDef(
         name=func_def.name,
         args=func_def.args,
-        body=[guarded_if],
+        body=hoisted_decls + [guarded_if],
         decorator_list=[],
         returns=func_def.returns,
         type_comment=None,

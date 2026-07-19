@@ -299,3 +299,76 @@ def test_transforms_around_untracked_second_dataclass():
     cell.valid = False
     assert transformed(5) == expected
     cell.valid = True
+
+
+# --------------------------------------------------------------------------
+# global/nonlocal hoisting (bug caught while building v1.4's mutation
+# mode, but a general fix -- any @asr-decorated function using `global`
+# would have hit this regardless of reconstruct vs. mutate mode).
+# --------------------------------------------------------------------------
+
+_global_hoist_counter = 0
+
+
+@dataclasses.dataclass(frozen=True)
+class _GlobalHoistPoint(object):
+    x: float
+
+
+def _run_with_global_before_loop(n):
+    """A bare `global counter` duplicated verbatim into BOTH the fast
+    path and the original body (the guarded if/else's two branches)
+    makes CPython's compiler raise "name X is assigned to before global
+    declaration" at compile() time -- even though the branches are
+    mutually exclusive at runtime. _try_transform_inner hoists any
+    top-level global/nonlocal declaration once, above the guarded
+    if/else, instead of letting it get duplicated."""
+    global _global_hoist_counter
+    p = _GlobalHoistPoint(0.0)
+    i = 0
+    while i < n:
+        p = _GlobalHoistPoint(p.x + 1.0)
+        _global_hoist_counter += 1
+        i += 1
+    return p
+
+
+def test_hoists_global_declaration_out_of_the_guarded_branches():
+    global _global_hoist_counter
+    transformed = try_transform(_run_with_global_before_loop)
+    assert transformed is not None
+    cell = _cell_for(_run_with_global_before_loop.__module__, "_GlobalHoistPoint")
+
+    cell.valid = True
+    _global_hoist_counter = 0
+    assert transformed(6) == _GlobalHoistPoint(6.0)
+    assert _global_hoist_counter == 6
+
+    cell.valid = False
+    _global_hoist_counter = 0
+    assert transformed(6) == _GlobalHoistPoint(6.0)
+    assert _global_hoist_counter == 6
+    cell.valid = True
+
+
+@dataclasses.dataclass(frozen=True)
+class _GlobalInLoopPoint(object):
+    x: float
+
+
+def _run_with_global_inside_loop(n):
+    p = _GlobalInLoopPoint(0.0)
+    i = 0
+    while i < n:
+        global _global_hoist_counter  # declared INSIDE the loop body, not hoistable
+        _global_hoist_counter += 1
+        p = _GlobalInLoopPoint(p.x + 1.0)
+        i += 1
+    return p
+
+
+def test_declines_global_declared_inside_the_loop_body():
+    """Only a top-level global/nonlocal statement before the loop is
+    hoisted; one nested inside the loop body isn't handled and is
+    declined rather than risking the same compiler error."""
+    assert try_transform(_run_with_global_inside_loop) is None
