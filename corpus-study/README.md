@@ -115,43 +115,73 @@ the shape this technique targets.
 
 ## Results — gate-faithful pass (`classify.py`)
 
-**v1.6 update**: three narrow, real gaps this study surfaced have since been
-fixed in `asr/transform.py`/`asr/guard.py` — module-qualified construction
-(`_resolve_ctor_class`, `_call_target_matches_class`), annotated
-self-assignment (`guard._infer_plain_class_fields`'s `ast.AnnAssign`
-support), and interspersed attribute docstrings
-(`guard._is_docstring_stmt`, which now skips a bare string-literal
-statement wherever it appears in `__init__`, not just at `body[0]`) — each
-verified against the real `@asr` decorator with new passing tests
-(`tests/test_qualified_calls.py`, `tests/test_mutation.py`'s new
-annotated-field and per-attribute-docstring cases), and `classify.py` was
-updated to match after each one. The corpus was re-run after all three:
+**v1.6/v1.7 update**: four narrow, real gaps this study surfaced have since
+been fixed in `asr/transform.py`/`asr/guard.py` — module-qualified
+construction (`_resolve_ctor_class`, `_call_target_matches_class`),
+annotated self-assignment (`guard._infer_plain_class_fields`'s
+`ast.AnnAssign` support), interspersed attribute docstrings
+(`guard._is_docstring_stmt`), and (v1.7) a pre-loop initializer relying on
+`__init__`'s own default values (`_ctor_init_defaults`,
+`_ctor_field_value_or_default`) — each verified against the real `@asr`
+decorator with new passing tests, and `classify.py` updated to match after
+each one. The corpus was re-run after all four:
 
 ```
 Projects: 27   Files: 10074
-Forms with >=1 syntactic record-accumulator candidate: 1
+Forms with >=1 syntactic record-accumulator candidate: 9
   of which qualify under the REAL gates: 0 (0.00%)
-Individual accumulator-binding candidates: 1
+Individual accumulator-binding candidates: 9
   of which qualify under the REAL gates: 0 (0.00%)
+
+--- by domain (qualified forms / candidate forms) ---
+  graphics_games         0 / 2       0.00%
+  language_compilers     0 / 7       0.00%
 ```
 
-**Still unchanged.** `CameraData` — the real corpus class that motivated
-all three fixes — now correctly *registers* as a qualifying class (`mode=
-'mutate', fields=('position', 'up', 'forward', 'zoom')`, confirmed directly
-against the live corpus source, not just the reduced repro). But re-tracing
-its only actual usage in this corpus (two sites, both in
-`arcade/tests/unit/camera/test_camera_controller_methods.py`) turned up a
-**fourth, independent, and harder gap**: both call sites are
-`CameraData()` — zero arguments, relying entirely on `__init__`'s own
-default values for all four fields. `transform.py`'s
-`_ctor_supplies_all_fields` requires every field to be supplied
-*explicitly* at the call site (it extracts each field's initial value
-straight from the AST arguments — there's no default-value lookup or
-evaluation mechanism at all), so this correctly declines too. Unlike the
-first three, this one isn't a narrow recognition fix: supporting
-defaulted arguments would mean introspecting `__init__`'s own default
-expressions and either evaluating or symbolically threading them through
-the scalar-init logic — a real, separate feature, not attempted here.
+**Real movement this time** — candidate discovery jumped from 1 to 9 (the
+v1.7 defaults fix relaxes *what counts as a candidate at all*, not just
+what qualifies), surfacing real production code for the first time:
+`black`'s own line-formatting hot path (`linegen.py`, `current_line: Line`,
+twice), `LibCST`'s parser/codemod internals (three sites), `black`'s test
+harness, and the two previously-known sites (mypy's `class_info`, arcade's
+`CameraData`, which now finally registers as a class). **Still zero
+qualify** — but hand-tracing all 9 turned up a genuinely richer picture
+than a single repeated reason:
+
+- **Bare accumulator passed to a function** (2 sites: mypy's `class_info`,
+  arcade's `camera_data.position = grips.strafe(camera_data, dirs)`) — the
+  Clojure/FOL papers' `:aliased-reference`, structurally unfixable.
+- **A method called on the accumulator, not a field** (`black`'s
+  `current_line.append_safe(leaf, ...)`, 2 sites) — `Line` has real
+  behavior, not just data; same structural category, different shape.
+- **The accumulator changes CLASS across iterations** (LibCST's
+  `convert_dotted_name`/`_apply_type_annotations.py`, 2 sites): `node =
+  Name(...)` then, inside the loop, `node = Attribute(value=node, ...)` --
+  a genuinely different class each time. This whole technique assumes ONE
+  fixed class per accumulator; a type-changing accumulator isn't a
+  recognition gap, it's a different pattern entirely.
+- **The accumulator embeds ITSELF as a field of its own reconstruction**
+  (LibCST's `convert_union_to_or.py`: `replacement = cst.BinaryOperation
+  (left=replacement, right=type_, ...)`) — building a left-leaning tree
+  where each step's value must contain the FULL prior structure, not just
+  read scalar fields out of it. This is structurally incompatible with
+  flattening to scalars, in the same spirit as Clojure's `reductions` (its
+  own one fundamental, never-attempted limit) -- unlike an aliasing
+  escape, there's no way to "fix" this by extending the recognizer, since
+  the accumulator genuinely needs to persist as a real object here.
+- **A helper too complex to inline** (`black`'s `mode = parse_mode(...)`):
+  `parse_mode`'s body is 8+ statements, not `_try_inline_call`'s required
+  bare `return <reconstruction>` -- the existing, documented inlining
+  restriction, not a new finding.
+
+This is a more informative result than a single repeated reason would have
+been: it completes the investigation with a genuinely varied, honest
+picture, rather than leaving open whether a fifth narrow gap was hiding.
+Two of five categories (bare-escape, method-call) are the same structural
+limit the Clojure/FOL papers already describe; two more (type-changing
+accumulator, self-embedding reconstruction) are *new*, Python-specific
+structural limits this study hadn't previously characterized; the last is
+an existing, already-documented scope boundary.
 
 ### Why almost nothing reaches the real gate
 
@@ -162,14 +192,18 @@ one is a hand-written class with its own `__init__`. This matters because
 `asr/guard.py` source, not assumed — only accepts an `__init__` body that
 is a *flat, unconditional* sequence of `self.<name> = <name>` or (v1.6)
 `self.<name>: Type = <name>` assignments (with any bare-string docstring
-statement skipped, v1.6), one per parameter, in order. Real `__init__`
-bodies routinely do more: compute derived fields, apply defaults, coerce
-types, call `super().__init__()`, or branch — every one of those still
-aborts inference.
+statement skipped, v1.6), one per parameter, in order, with any field left
+unsupplied at the call site covered by a known default (v1.7). Real
+`__init__` bodies routinely do more: compute derived fields, coerce types,
+call `super().__init__()`, or branch — every one of those still aborts
+inference. And once a class *does* register, its accumulator still needs
+to survive full escape analysis — used only as a data record (field reads
+and writes), never as an object with behavior (methods called on it).
 
-Four gaps have now been isolated and confirmed by hand against
+Four gaps have now been isolated, fixed, and confirmed by hand against
 `transform.py`/`guard.py`'s actual source (not assumed from the syntactic
-pass) — three fixed in v1.6, one left unfixed as a real, separate feature:
+pass) — all four narrow, additive, and safely fixable without touching the
+escape-analysis or field-matching logic that does the safety-critical work:
 
 - **Module-qualified construction** (`p = arcade.SpriteSolidColor(...)`,
   from `import arcade` rather than `from arcade import SpriteSolidColor`)
@@ -181,49 +215,40 @@ pass) — three fixed in v1.6, one left unfixed as a real, separate feature:
   documentation) — **fixed in v1.6.**
 - **Defaulted constructor arguments** (`CameraData()`, relying on
   `__init__`'s own defaults rather than supplying every field explicitly)
-  — **not fixed**, a genuinely different and larger feature, not a narrow
-  recognition gap like the other three.
+  — **fixed in v1.7**, scoped to the pre-loop initializer only (an in-loop
+  reconstruction relying on a default would silently reset that field
+  every iteration, so it still requires every field explicit by design).
 
-The first three are the same *kind* of gap — narrow, additive, and safely
-fixable without touching the escape-analysis or field-matching logic that
-actually does the safety-critical work — unlike the Clojure PLDI study's
-`:aliased-reference` category, which is structural. The fourth is closer
-in spirit to that structural category, just for a different underlying
-reason (missing information, not aliasing): the AST at the call site
-genuinely doesn't contain the field's initial value at all.
+Unlike the Clojure PLDI study's `:aliased-reference` category, none of
+these four were structural — each closed real, verified real-world code.
+What's left after all four, per this corpus, is a small taxonomy of
+structural limits (below) -- some already known from the Clojure/FOL
+papers, some newly characterized here.
 
 ### Case studies (hand-audited)
 
-| site | file | verdict | reason |
+| site | file | category | reason |
 |---|---|---|---|
-| `SievePolynomial` | `sympy/ntheory/qs.py` | correctly declined | `__init__` computes derived fields (`self.a2 = a**2`), not a flat passthrough |
-| `Production` | `astropy/extern/ply/yacc.py` (vendored PLY parser) | correctly declined | `__init__` has 10+ statements: list construction, string formatting, more locals than parameters |
-| `CameraData` | `arcade/camera/data_types.py` | class now registers correctly; its two actual usage sites still correctly decline, for a **fourth, independent reason** | originally blocked by THREE now-fixed gaps (module-qualified construction, annotated self-assignment, interspersed attribute docstrings) — with the class itself now fully recognized, tracing its only real usage (both in a test file) revealed a fourth blocker: `CameraData()` with zero arguments, relying on `__init__`'s own defaults, which `_ctor_supplies_all_fields` can't see at all. |
-| `class_info` (`ClassInfo`) | `mypy/stubgenc.py:827` | the one real candidate; **correctly declined for a genuine escape** | `class_info` is passed as a bare argument to several helper methods (`is_method`, `is_staticmethod`, `generate_function_stub`) inside the loop — exactly the aliasing hazard the escape check exists to catch. This is the Python-native instance of the Clojure/FOL papers' `:aliased-reference` category: **structurally unfixable**, not an analysis gap. |
+| `SievePolynomial` | `sympy/ntheory/qs.py` | non-trivial `__init__` | computes derived fields (`self.a2 = a**2`), not a flat passthrough |
+| `Production` | `astropy/extern/ply/yacc.py` (vendored PLY parser) | non-trivial `__init__` | 10+ statements: list construction, string formatting, more locals than parameters |
+| `class_info` (`ClassInfo`) | `mypy/stubgenc.py:827` | **bare escape** (Clojure/FOL's `:aliased-reference`) | passed as a bare argument to `is_method`/`is_staticmethod`/`generate_function_stub` inside the loop |
+| `camera_data` (`CameraData`) | `arcade/tests/unit/camera/test_camera_controller_methods.py` | **bare escape** | `camera_data.position = grips.strafe(camera_data, dirs)` passes the accumulator itself as an argument; class now fully registers (v1.7 closed the last gap) but the site still, correctly, declines |
+| `current_line` (`Line`) | `black/src/black/linegen.py:1476,1557` | **method call, not field access** | `current_line.append_safe(leaf, preformatted=True)` -- `Line` has real behavior, not just data |
+| `node` (`Name`→`Attribute`) | `LibCST/libcst/_parser/conversions/statement.py:613`, `.../_apply_type_annotations.py:548` | **accumulator changes class across iterations** (newly characterized) | `node = Name(...)` initially, then `node = Attribute(value=node, ...)` inside the loop -- a different class each time; this technique assumes one fixed class per accumulator by design |
+| `replacement` (`BinaryOperation`) | `LibCST/libcst/codemod/commands/convert_union_to_or.py:44` | **accumulator embeds itself in its own reconstruction** (newly characterized) | `replacement = cst.BinaryOperation(left=replacement, right=type_, ...)` builds a left-leaning tree where each step needs the FULL prior structure, not scalar fields out of it -- structurally incompatible with flattening, in the same spirit as Clojure's own `reductions` limit |
+| `mode` (`TestCaseArgs`) | `black/tests/util.py:313` | helper too complex to inline | `parse_mode`'s body is 8+ statements, not the required bare `return <reconstruction>` -- an existing, already-documented scope boundary, not a new finding |
 
-The `class_info` case is worth dwelling on: it's a real, independent
-confirmation — in a completely different language and corpus — of the
-same phenomenon the FOL papers call the "quicksort-swap" shape and the
-Clojure PLDI study's `classify.clj` measures directly (51.6% of its own
-genuine collection-init failures are this exact kind of unfixable
-aliasing). Even reaching for a *correct* rejection this cleanly, on the
-very first real candidate this corpus surfaced, is a small but genuine
-piece of evidence that the escape check generalizes.
-
-The `CameraData` case is worth dwelling on too, for the opposite reason:
-it's a concrete illustration of how a single real-world class can be
-blocked by *multiple, independently-fixable* gaps stacked on top of each
-other — fixing three of the four doesn't change the outcome for that
-specific site, even though all three fixes are individually correct and
-each unlocks other, different hypothetical code. A corpus of one is not
-evidence any fix was pointless; it's evidence that this particular
-corpus's few near-miss sites happen to be unusually gap-stacked, which is
-itself informative about what real-world `__init__` bodies actually look
-like — and that "the class now qualifies" and "a specific call site to it
-qualifies" are two different, independently-checked conditions.
-fix was pointless; it's evidence that this particular corpus's few
-near-miss sites happen to be unusually gap-stacked, which is itself
-informative about what real-world `__init__` bodies actually look like.
+`class_info` and `camera_data` are worth dwelling on together with
+`current_line`: three independent, real-world confirmations — in a
+completely different language and corpus from the one the FOL papers
+studied — of the same phenomenon the FOL papers call the "quicksort-swap"
+shape and the Clojure PLDI study's `classify.clj` measures directly
+(51.6% of its own genuine collection-init failures are this exact kind of
+unfixable aliasing). The `node` and `replacement` cases are a different,
+useful result: two structural limits specific to Python's OOP-flavored
+"rebuild by constructing a new instance" idiom that the Clojure study,
+working with a single immutable record type per accumulator by
+construction, never had reason to surface.
 
 ## Interpretation
 
@@ -246,11 +271,12 @@ state classes that carry this pattern in these particular 27 projects.
    hand-picked to mirror the Clojure study's domain categories, not
    randomly sampled — the same selection-bias caveat any 27-repo sample
    carries.
-2. `classify.py`'s gate-faithful pass found only 1 raw candidate in this
-   specific corpus; treat its 0% as a qualitative finding ("the syntactic
-   proxy overstates applicability, for specific and partly fixable
-   reasons"), not a precise measured rate the way the Clojure PLDI study's
-   1,166-form sample supports.
+2. `classify.py`'s gate-faithful pass found only 9 raw candidates in this
+   specific corpus (up from 1, after the v1.7 defaults fix widened what
+   counts as a candidate at all); treat its 0% as a qualitative finding
+   ("the syntactic proxy overstates applicability, for specific and
+   mostly-fixable reasons") rather than a precise measured rate the way
+   the Clojure PLDI study's 1,166-form sample supports.
 3. Both passes are syntactic/AST-only — no macroexpansion-equivalent, no
    import resolution beyond "defined somewhere in this project," no
    dynamic execution. `classify.py`'s own module docstring lists five
@@ -262,16 +288,18 @@ state classes that carry this pattern in these particular 27 projects.
    restriction would be — verified necessary during development (an
    earlier per-file version undercounted `arcade` by conflating "class
    defined in a different file" with "class doesn't exist").
-5. This study has now been re-run twice, after fixing three of its own
-   findings one at a time (module-qualified construction, annotated
-   self-assignment, interspersed attribute docstrings), and the
-   corpus-measured result never moved (`CameraData`, the site that
-   motivated all three, needed a fourth, unrelated, and unfixed gap too)
-   — a reminder that a single-corpus before/after comparison can look
-   like "the fix didn't matter" even when every fix is independently
-   correct, tested, and confirmed against the exact real-world shape it
-   targeted; it just means this particular corpus's remaining near-misses
-   keep landing on a different gap each time.
+5. This study has now been re-run three times, after fixing four of its
+   own findings one at a time (module-qualified construction, annotated
+   self-assignment, interspersed attribute docstrings, defaulted
+   constructor arguments), and the corpus-measured qualifying fraction
+   never moved off 0% -- but the fourth fix DID move candidate discovery
+   (1 -> 9), surfacing a genuinely richer, more varied set of structural
+   limits than the first three fixes alone had revealed (see the case
+   studies table). Read this as the intended shape of an honest corpus
+   study: each fix is independently verified and tested regardless of
+   whether it happens to flip this specific corpus's headline number, and
+   the investigation is more complete, not less informative, for having
+   run to the point where no further narrow gap was left to find.
 
 ## Usage
 

@@ -58,9 +58,9 @@
       "project": "Instagram__LibCST",
       "domain": "language_compilers",
       "files": 335,
-      "candidate_bindings": 0,
+      "candidate_bindings": 3,
       "qualified_bindings": 0,
-      "candidate_forms": 0,
+      "candidate_forms": 3,
       "qualified_forms": 0
     },
     {
@@ -112,9 +112,9 @@
       "project": "psf__black",
       "domain": "language_compilers",
       "files": 336,
-      "candidate_bindings": 0,
+      "candidate_bindings": 3,
       "qualified_bindings": 0,
-      "candidate_forms": 0,
+      "candidate_forms": 3,
       "qualified_forms": 0
     },
     {
@@ -184,9 +184,9 @@
       "project": "pythonarcade__arcade",
       "domain": "graphics_games",
       "files": 691,
-      "candidate_bindings": 0,
+      "candidate_bindings": 2,
       "qualified_bindings": 0,
-      "candidate_forms": 0,
+      "candidate_forms": 2,
       "qualified_forms": 0
     },
     {

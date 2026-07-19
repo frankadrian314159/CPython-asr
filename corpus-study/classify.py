@@ -21,9 +21,14 @@ What's ported, closely mirroring the real implementation:
   - _classify_accumulator_class: frozen dataclass -> reconstruct mode;
     non-frozen dataclass or inferable plain class (mutation-safe) ->
     mutate mode; anything else doesn't qualify.
-  - _ctor_supplies_all_fields: the init call (and, for reconstruct
-    mode, every record-ctor update site) must supply EXACTLY the
-    class's fields, no more, no fewer.
+  - _ctor_supplies_all_fields: every record-ctor update site must
+    supply EXACTLY the class's fields, no more, no fewer. The pre-loop
+    init call may ALSO leave a field to __init__'s own default value
+    (v1.7, `default_fields` -- static analog of guard._ctor_init_defaults,
+    via ast.arguments.defaults / a class-level AnnAssign's value, not
+    live inspect.signature) -- deliberately init-site only, matching
+    transform.py's own scope: an update site relying on a default would
+    silently reset that field every iteration.
   - _resolve_ctor_class / _call_target_matches_class (v1.6): a
     module-qualified `module.ClassName(...)` call is recognized at both
     the pre-loop init site and every reconstruction site, not just the
@@ -194,12 +199,51 @@ def _defines_own_setattr(class_def):
     )
 
 
+def _dataclass_default_fields(class_def):
+    """Field names with a class-level default (`x: float = 0.0`) --
+    ports the common case of what dataclass generates a defaulted
+    __init__ parameter for. `field(default=...)`/`field(default_factory=
+    ...)` (dataclasses.field calls) aren't recognized -- a further,
+    documented undercount (v1.7's static analog of
+    guard._ctor_init_defaults, which uses live inspect.signature and so
+    doesn't have this gap in the real tool)."""
+    return frozenset(
+        stmt.target.id
+        for stmt in class_def.body
+        if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name) and stmt.value is not None
+    )
+
+
+def _plain_class_default_fields(class_def):
+    """Field names with a default value in __init__'s own signature --
+    static analog of guard._ctor_init_defaults (v1.7), via
+    ast.arguments.defaults (aligned to the END of args, same as
+    Python's own argument-binding rules)."""
+    init = next(
+        (s for s in class_def.body if isinstance(s, ast.FunctionDef) and s.name == "__init__"),
+        None,
+    )
+    if init is None:
+        return frozenset()
+    params = [a.arg for a in init.args.args]
+    if not params or params[0] != "self":
+        return frozenset()
+    param_names = params[1:]
+    n_defaults = len(init.args.defaults)
+    defaulted = set(param_names[len(param_names) - n_defaults :]) if n_defaults else set()
+    kw_defaulted = {
+        a.arg for a, d in zip(init.args.kwonlyargs, init.args.kw_defaults) if d is not None
+    }
+    return frozenset(defaulted | kw_defaulted)
+
+
 @dataclasses.dataclass
 class ClassInfo:
     name: str
     mode: str  # "reconstruct" | "mutate"
     fields: tuple
     helper_defs: dict  # populated later: name -> FunctionDef, for inlining
+    default_fields: frozenset = frozenset()  # v1.7: fields with a known default value
 
 
 def build_class_registry(tree):
@@ -216,18 +260,20 @@ def build_class_registry(tree):
             fields = _dataclass_fields(node)
             if not fields:
                 continue
+            default_fields = _dataclass_default_fields(node)
             frozen = any(_decorator_is_frozen(d) for d in dataclass_decs)
             if frozen:
-                registry[node.name] = ClassInfo(node.name, "reconstruct", fields, {})
+                registry[node.name] = ClassInfo(node.name, "reconstruct", fields, {}, default_fields)
                 continue
             if not _defines_own_setattr(node):
-                registry[node.name] = ClassInfo(node.name, "mutate", fields, {})
+                registry[node.name] = ClassInfo(node.name, "mutate", fields, {}, default_fields)
             continue
         # Plain class -- only mutate mode is possible, and only if
         # fields are inferable and __setattr__ isn't overridden.
         fields = _infer_plain_class_fields(node)
         if fields and not _defines_own_setattr(node):
-            registry[node.name] = ClassInfo(node.name, "mutate", fields, {})
+            default_fields = _plain_class_default_fields(node)
+            registry[node.name] = ClassInfo(node.name, "mutate", fields, {}, default_fields)
     return registry
 
 
@@ -247,7 +293,14 @@ def build_helper_registry(tree):
 # Constructor-call field matching (ports _ctor_supplies_all_fields)
 # --------------------------------------------------------------------------
 
-def ctor_supplies_all_fields(call_node, fields):
+def ctor_supplies_all_fields(call_node, fields, default_fields=None):
+    """`default_fields` (v1.7) is only ever passed for the pre-loop
+    initializer -- reconstruction-site matching (is_known_reconstruction,
+    below) always calls this without it, matching transform.py's own
+    deliberate scope: an in-loop reconstruction relying on a default
+    would silently reset that field every iteration, so it still
+    requires every field explicit."""
+    default_fields = default_fields or frozenset()
     if any(kw.arg is None for kw in call_node.keywords):
         return False
     n_pos = len(call_node.args)
@@ -256,8 +309,13 @@ def ctor_supplies_all_fields(call_node, fields):
     kw_names = [kw.arg for kw in call_node.keywords]
     if len(set(kw_names)) != len(kw_names):
         return False
-    supplied = set(fields[:n_pos]) | set(kw_names)
-    return supplied == set(fields) and n_pos + len(kw_names) == len(fields)
+    if not set(kw_names) <= set(fields):
+        return False
+    explicitly_supplied = set(fields[:n_pos]) | set(kw_names)
+    if n_pos + len(kw_names) != len(explicitly_supplied):
+        return False
+    missing = set(fields) - explicitly_supplied
+    return missing <= default_fields
 
 
 def is_replace_call(node, alias):
@@ -501,7 +559,7 @@ def candidate_sites_for_loop(loop_node, preceding_stmts, registry, helper_regist
         else:
             continue
         info = registry.get(class_name)
-        if info is not None and ctor_supplies_all_fields(init_expr, info.fields):
+        if info is not None and ctor_supplies_all_fields(init_expr, info.fields, info.default_fields):
             yield name, info
 
 

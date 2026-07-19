@@ -103,6 +103,26 @@ making user-defined macros visible to its AST walker. Deliberately
 narrow: only one level of qualification (`module.Class`, not
 `a.b.Class`), and only for constructor calls, not for _try_inline_call's
 helper-function resolution, which stays Name-only.
+
+v1.7 recognizes a pre-loop initializer that leaves one or more fields to
+`__init__`'s own default value -- `p = CameraData()`, relying on
+defaults for all four fields, rather than supplying every one
+explicitly (see _ctor_init_defaults). The default's real, already-
+evaluated value (via `inspect.signature`, matching Python's own once-
+at-definition-time default-evaluation semantics -- including a mutable
+default's cross-call sharing behavior, faithfully reproduced rather than
+"fixed") is injected into the transformed function's namespace as a
+fresh global and referenced by name (_ctor_field_value_or_default), the
+same technique already used for a resolved class object or guard cell.
+Deliberately scoped to the pre-loop initializer only, not in-loop
+reconstruction sites or their branch/match/inlined variants -- an update
+site relying on a default would silently RESET that field every
+iteration rather than preserving it (correctness-neutral, since that's
+what re-calling the constructor without that argument actually does,
+but easy to misread), so those still require every field explicit.
+Motivated directly by cpython-asr's own corpus study
+(corpus-study/README.md): arcade's `CameraData` is constructed with zero
+explicit arguments in its only real usage.
 """
 
 import ast
@@ -126,10 +146,16 @@ def _mangled_name(var_name, field_name):
     return f"__asr_{var_name}_{field_name}"
 
 
-def _ctor_supplies_all_fields(call_node, fields):
-    """True when a `ClassName(...)` call supplies exactly `fields`, by
-    position (in field-declaration order) or keyword, with no **kwargs
-    spread and no field left to a default."""
+def _ctor_supplies_all_fields(call_node, fields, defaults=None):
+    """True when a `ClassName(...)` call supplies every field in
+    `fields`, by position (in field-declaration order), by keyword, or
+    (v1.7, `defaults`) via a known default value from the class's own
+    __init__ signature -- with no **kwargs spread, no field supplied
+    twice, and no unknown keyword. `defaults` is only ever passed at the
+    pre-loop initializer site (_find_accumulator) -- see
+    _ctor_init_defaults's docstring for why in-loop reconstruction sites
+    deliberately still require every field explicitly."""
+    defaults = defaults or {}
     if any(kw.arg is None for kw in call_node.keywords):
         return False
     n_pos = len(call_node.args)
@@ -138,8 +164,13 @@ def _ctor_supplies_all_fields(call_node, fields):
     kw_names = [kw.arg for kw in call_node.keywords]
     if len(set(kw_names)) != len(kw_names):
         return False
-    supplied = set(fields[:n_pos]) | set(kw_names)
-    return supplied == set(fields) and n_pos + len(kw_names) == len(fields)
+    if not set(kw_names) <= set(fields):
+        return False
+    explicitly_supplied = set(fields[:n_pos]) | set(kw_names)
+    if n_pos + len(kw_names) != len(explicitly_supplied):
+        return False  # a field supplied both positionally and by keyword
+    missing = set(fields) - explicitly_supplied
+    return missing <= set(defaults.keys())
 
 
 def _ctor_field_value(call_node, fields, field_name):
@@ -149,6 +180,65 @@ def _ctor_field_value(call_node, fields, field_name):
     for kw in call_node.keywords:
         if kw.arg == field_name:
             return kw.value
+    raise AsrDecline(f"field {field_name!r} not supplied in constructor call")
+
+
+def _ctor_init_defaults(cls, fields):
+    """{field: value} for every field of cls's __init__ with a default
+    value, via inspect.signature -- the REAL, already-evaluated default
+    object, matching Python's own once-at-definition-time default-
+    evaluation semantics exactly (including a mutable default's sharing
+    behavior across calls, if the class author used one -- faithfully
+    reproduced, not "fixed", since the untransformed code would share it
+    too). Returns {} if signature introspection fails for any reason
+    (safe-by-abort: an empty dict just means no field gets treated as
+    defaulted, falling back to the pre-v1.7 strict behavior).
+
+    v1.7, motivated directly by cpython-asr's own corpus study
+    (corpus-study/README.md): arcade's CameraData is constructed with
+    zero explicit arguments in its only real usage, relying entirely on
+    __init__'s own defaults. Deliberately scoped to the pre-loop
+    initializer only (_find_accumulator), not in-loop reconstruction
+    sites (_reconstruction_field_values) or branch/match/inlined
+    variants of them: an update site relying on a default would silently
+    RESET that field to its default value every iteration (matching
+    real Python semantics exactly, since that's what re-calling the
+    constructor without that argument actually does) rather than
+    preserving whatever the field held -- a correctness-neutral but
+    easy-to-misread shape that's safer to leave declined for now than to
+    risk a confusing silent reset in code that looks at a glance like it
+    preserves a field."""
+    try:
+        sig = inspect.signature(cls.__init__)
+    except (ValueError, TypeError):
+        return {}
+    defaults = {}
+    for name, param in sig.parameters.items():
+        if name in fields and param.default is not inspect.Parameter.empty:
+            defaults[name] = param.default
+    return defaults
+
+
+def _ctor_field_value_or_default(call_node, fields, field_name, defaults, namespace, unique_prefix):
+    """Like _ctor_field_value, but when `field_name` isn't supplied at
+    the call site AND has a known default (v1.7), injects that default
+    VALUE into `namespace` under a fresh unique name and returns an
+    ast.Name referencing it -- there's no AST expression for a default
+    at the call site to reuse (it isn't written there at all), so the
+    already-evaluated Python object itself is threaded through as a
+    real global, the same technique _try_transform_inner already uses
+    for injecting a resolved class object (cls_keys) or guard cell
+    (cell_keys)."""
+    idx = fields.index(field_name)
+    if idx < len(call_node.args):
+        return call_node.args[idx]
+    for kw in call_node.keywords:
+        if kw.arg == field_name:
+            return kw.value
+    if field_name in defaults:
+        key = f"{unique_prefix}_{field_name}"
+        namespace[key] = defaults[field_name]
+        return ast.Name(id=key, ctx=ast.Load())
     raise AsrDecline(f"field {field_name!r} not supplied in constructor call")
 
 
@@ -596,7 +686,8 @@ def _find_accumulator(pre_loop_stmts, globalns, already_processed):
         if classified is None:
             continue
         mode, fields = classified
-        if not _ctor_supplies_all_fields(call, fields):
+        defaults = _ctor_init_defaults(cls, fields)  # v1.7 -- see its own docstring
+        if not _ctor_supplies_all_fields(call, fields, defaults):
             continue
         return i, var_name, cls, fields, mode
     raise AsrDecline("no qualifying accumulator initializer found before the loop")
@@ -915,7 +1006,7 @@ def try_transform(func):
         return None
 
 
-def _process_one_accumulator(pre_loop_stmts, while_node, globalns, existing_names, already_processed):
+def _process_one_accumulator(pre_loop_stmts, while_node, globalns, existing_names, already_processed, func_name):
     """One step of the multi-accumulator fixpoint: find the next
     not-yet-processed qualifying accumulator and unbox it -- via
     reconstruction (frozen dataclasses) or in-place mutation (non-
@@ -934,18 +1025,31 @@ def _process_one_accumulator(pre_loop_stmts, while_node, globalns, existing_name
 
     scalar_names = {f: _mangled_name(var_name, f) for f in fields}
     accum_assign = pre_loop_stmts[accum_idx]
+    # v1.7: a field the init call leaves to __init__'s own default (see
+    # _ctor_init_defaults) is threaded through as an injected global
+    # (_ctor_field_value_or_default), unique per accumulator-and-function
+    # so two @asr'd functions -- or two accumulators, same field name --
+    # sharing globalns can't clobber each other's default value.
+    defaults = _ctor_init_defaults(cls, fields)
+    default_key_prefix = f"__asr_default_{var_name}_{func_name}"
     init_stmts = [
         _mk_assign(
             scalar_names[field],
-            copy.deepcopy(_ctor_field_value(accum_assign.value, fields, field)),
+            copy.deepcopy(
+                _ctor_field_value_or_default(
+                    accum_assign.value, fields, field, defaults, globalns, default_key_prefix
+                )
+            ),
             accum_assign,
         )
         for field in fields
     ]
 
+    default_key_candidates = [f"{default_key_prefix}_{f}" for f in defaults]
+
     if mode == "mutate":
         _analyze_mutation_loop_body(while_node, var_name, fields)
-        for name in scalar_names.values():
+        for name in list(scalar_names.values()) + default_key_candidates:
             if name in existing_names:
                 raise AsrDecline(f"scalar name collision: {name}")
         # Keep the original `p = ClassName(...)` statement -- mutate
@@ -966,6 +1070,7 @@ def _process_one_accumulator(pre_loop_stmts, while_node, globalns, existing_name
         list(scalar_names.values())
         + [f"__asr_tmp_{n}" for n in scalar_names.values()]
         + [temp_name for temp_name, _ in prelude]
+        + default_key_candidates
     )
     for name in candidate_names:
         if name in existing_names:
@@ -1043,7 +1148,7 @@ def _try_transform_inner(func):
         budget -= 1
         try:
             pre_loop_stmts, while_node, info = _process_one_accumulator(
-                pre_loop_stmts, while_node, globalns, existing_names, already_processed
+                pre_loop_stmts, while_node, globalns, existing_names, already_processed, func_def.name
             )
         except AsrDecline:
             break
