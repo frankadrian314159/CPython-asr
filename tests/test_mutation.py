@@ -80,6 +80,70 @@ def test_plain_class_direct_field_writes():
     _check_dual_path(transformed, cell, 19, expected)
 
 
+class _AnnotatedPlainCounter(object):
+    """v1.6: fields inferred from ANNOTATED self-assignment
+    (`self.n: int = n`), not just the unannotated form -- a standard
+    modern, type-hinted idiom, motivated directly by cpython-asr's own
+    corpus study (corpus-study/README.md: arcade's CameraData used this
+    exact shape and, before this fix, couldn't be recognized at all)."""
+
+    def __init__(self, n: int, total: float):
+        self.n: int = n
+        self.total: float = total
+
+    def __eq__(self, other):
+        return isinstance(other, _AnnotatedPlainCounter) and self.n == other.n and self.total == other.total
+
+
+def _run_annotated_plain_class(n):
+    c = _AnnotatedPlainCounter(0, 0.0)
+    i = 0
+    while i < n:
+        c.n = c.n + 1
+        c.total = c.total + c.n
+        i += 1
+    return c
+
+
+def test_plain_class_with_annotated_field_assignment():
+    expected = _run_annotated_plain_class(19)
+    transformed = try_transform(_run_annotated_plain_class)
+    assert transformed is not None
+    cell = _cell_for(_run_annotated_plain_class.__module__, "_AnnotatedPlainCounter")
+    _check_dual_path(transformed, cell, 19, expected)
+
+
+class _MixedAnnotatedPlain(object):
+    """A mix of annotated and unannotated self-assignment in the same
+    __init__ -- each statement is checked independently, so this should
+    infer correctly too."""
+
+    def __init__(self, x: float, y):
+        self.x: float = x
+        self.y = y
+
+    def __eq__(self, other):
+        return isinstance(other, _MixedAnnotatedPlain) and self.x == other.x and self.y == other.y
+
+
+def _run_mixed_annotated_plain(n):
+    p = _MixedAnnotatedPlain(0.0, 0.0)
+    i = 0
+    while i < n:
+        p.x = p.x + 1.0
+        p.y = p.y + 2.0
+        i += 1
+    return p
+
+
+def test_plain_class_with_mixed_annotated_and_unannotated_fields():
+    expected = _run_mixed_annotated_plain(11)
+    transformed = try_transform(_run_mixed_annotated_plain)
+    assert transformed is not None
+    cell = _cell_for(_run_mixed_annotated_plain.__module__, "_MixedAnnotatedPlain")
+    _check_dual_path(transformed, cell, 11, expected)
+
+
 @dataclasses.dataclass
 class _ConditionalPoint(object):
     x: float
@@ -371,6 +435,49 @@ def test_declines_plain_class_with_computed_init_body():
     values here) aborts inference, so the class doesn't qualify at
     all."""
     assert try_transform(_run_plain_with_computed_init) is None
+
+
+class _ComputedAnnotatedInitPlain(object):
+    def __init__(self, x: float):
+        self.x: float = x * 2  # computed, still aborts inference even though annotated
+
+
+def _run_plain_with_computed_annotated_init(n):
+    p = _ComputedAnnotatedInitPlain(0.0)
+    i = 0
+    while i < n:
+        p.x = p.x + 1.0
+        i += 1
+    return p
+
+
+def test_declines_plain_class_with_computed_annotated_init_body():
+    """v1.6's AnnAssign support only extends WHICH assignment shape is
+    recognized (`self.x: T = x`), not what counts as "flat" -- a
+    computed value is still declined even when annotated."""
+    assert try_transform(_run_plain_with_computed_annotated_init) is None
+
+
+class _BareAnnotationPlain(object):
+    def __init__(self, x: float):
+        self.x: float  # annotation with no value -- not an assignment at all
+        self.x = x
+
+
+def _run_plain_with_bare_annotation(n):
+    p = _BareAnnotationPlain(0.0)
+    i = 0
+    while i < n:
+        p.x = p.x + 1.0
+        i += 1
+    return p
+
+
+def test_declines_plain_class_with_bare_annotation_no_value():
+    """`self.x: float` with no `= value` is `ast.AnnAssign(value=None)`
+    -- not an assignment, so it can't be a flat self.x = x passthrough;
+    correctly declined rather than crashing on a None value."""
+    assert try_transform(_run_plain_with_bare_annotation) is None
 
 
 class _CustomSetattrPlain(object):

@@ -48,15 +48,17 @@ def register(module_name, class_name, fields, mode):
 
 def _infer_plain_class_fields(cls):
     """Infer a plain (non-dataclass) class's field set by introspecting
-    __init__'s source for a flat sequence of `self.<name> = <name>`
-    assignments -- one per parameter, in order, name for name. Returns
-    an ordered tuple of field names, or None if __init__ is missing,
-    its source isn't available, or its body does anything more complex
-    (computed values, conditional logic, a call to super().__init__,
-    reordered or partial assignment, etc.). Deliberately narrow and
-    conservative -- good enough to recognize the common case,
-    safe-by-abort otherwise, same discipline as every other shape this
-    project recognizes."""
+    __init__'s source for a flat sequence of `self.<name> = <name>` or
+    `self.<name>: Type = <name>` (v1.6 -- a standard modern, type-hinted
+    idiom, motivated directly by cpython-asr's own corpus study, see
+    corpus-study/README.md) assignments -- one per parameter, in order,
+    name for name. Returns an ordered tuple of field names, or None if
+    __init__ is missing, its source isn't available, or its body does
+    anything more complex (computed values, conditional logic, a call to
+    super().__init__, reordered or partial assignment, a bare annotation
+    with no value, etc.). Deliberately narrow and conservative -- good
+    enough to recognize the common case, safe-by-abort otherwise, same
+    discipline as every other shape this project recognizes."""
     init = cls.__dict__.get("__init__")
     if init is None or not inspect.isfunction(init):
         return None
@@ -84,17 +86,21 @@ def _infer_plain_class_fields(cls):
 
     fields = []
     for stmt in body:
+        if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1:
+            target, value = stmt.targets[0], stmt.value
+        elif isinstance(stmt, ast.AnnAssign) and stmt.value is not None:
+            target, value = stmt.target, stmt.value
+        else:
+            return None
         if not (
-            isinstance(stmt, ast.Assign)
-            and len(stmt.targets) == 1
-            and isinstance(stmt.targets[0], ast.Attribute)
-            and isinstance(stmt.targets[0].value, ast.Name)
-            and stmt.targets[0].value.id == "self"
-            and isinstance(stmt.value, ast.Name)
-            and stmt.value.id in param_names
+            isinstance(target, ast.Attribute)
+            and isinstance(target.value, ast.Name)
+            and target.value.id == "self"
+            and isinstance(value, ast.Name)
+            and value.id in param_names
         ):
             return None  # anything beyond a flat self.field = param aborts inference
-        fields.append(stmt.targets[0].attr)
+        fields.append(target.attr)
 
     if fields != param_names or len(set(fields)) != len(fields):
         return None  # keep field order == __init__'s own parameter order, no reordering

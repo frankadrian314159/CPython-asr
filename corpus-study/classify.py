@@ -7,10 +7,10 @@ docs/cgo2027/corpus-study/src/asr_corpus/classify.clj in the FOL repo.
 
 What's ported, closely mirroring the real implementation:
   - guard.class_fields: dataclass field order from annotations, or a
-    plain class's fields inferred from a flat `self.name = name`
-    sequence in __init__ (same restriction as
-    guard._infer_plain_class_fields -- computed values, reordering, or
-    anything else aborts inference).
+    plain class's fields inferred from a flat `self.name = name` OR
+    `self.name: Type = name` (v1.6) sequence in __init__ (same
+    restriction as guard._infer_plain_class_fields -- computed values,
+    reordering, or anything else aborts inference).
   - guard.mutation_safe: a class with its own __setattr__ is never
     mutate-mode-safe.
   - _classify_accumulator_class: frozen dataclass -> reconstruct mode;
@@ -19,6 +19,18 @@ What's ported, closely mirroring the real implementation:
   - _ctor_supplies_all_fields: the init call (and, for reconstruct
     mode, every record-ctor update site) must supply EXACTLY the
     class's fields, no more, no fewer.
+  - _resolve_ctor_class / _call_target_matches_class (v1.6): a
+    module-qualified `module.ClassName(...)` call is recognized at both
+    the pre-loop init site and every reconstruction site, not just the
+    bare `ClassName(...)` shape -- this was the previous version's
+    single largest source of undercount, verified against real corpus
+    code (see corpus-study/README.md's original run). Statically, we
+    can't verify `module` actually resolves to the class's own defining
+    module (no live import graph here) -- matched by attribute name
+    alone against the project-wide registry, the same simplification
+    the bare-Name case already makes (no identity check beyond a name
+    match either) -- see analyze_project's own collision caveat, which
+    now applies equally to qualified calls.
   - The escape check _analyze_loop_body/_analyze_mutation_loop_body
     both apply: every reference to the accumulator name, anywhere in
     the loop, must be a `.field` access for a known field (mutate mode:
@@ -31,6 +43,9 @@ What's ported, closely mirroring the real implementation:
     LOCALLY-DEFINED (same file only -- no cross-file/import resolution)
     helper function whose body is exactly `return <reconstruction>`,
     with the accumulator passed as exactly one bare argument.
+    _try_inline_call's own helper-CALL-SITE resolution stays Name-only
+    by design, matching transform.py -- v1.6 only extended constructor-
+    call resolution, not helper-function resolution.
 
 What's deliberately NOT replicated (documented lower-bound reasons,
 same spirit as classify.clj's own header):
@@ -57,17 +72,6 @@ static replica, never overcount -- except (3)/(4), which could in
 principle admit a site the real pass would reject; read the qualifying
 fraction as an ESTIMATE bracketed by analyze.py's syntactic-shape
 proxy above it, not a hard floor or ceiling either direction.
-
-The two named diagnostic categories below (qualified_name, annassign)
-are each a NECESSARY-CONDITION check ("blocked ONLY by this one
-thing") -- a site failing BOTH simultaneously (verified to occur in
-the corpus: a module-qualified call to a class whose __init__ also uses
-annotated self-assignment) is attributed to NEITHER bucket and, since
-candidate_sites_for_loop requires passing the qualified_name check
-before the annassign check is even reached for a bare-Name call, isn't
-even counted in candidate_bindings at all -- a further, deliberate
-undercount rather than an attempt at exhaustive multi-reason
-attribution, which was out of scope for this pass.
 
 Usage: python classify.py [corpus_dir] [manifest.json] [out.json]
 """
@@ -124,9 +128,11 @@ def _dataclass_fields(class_def):
 
 def _infer_plain_class_fields(class_def):
     """Ports guard._infer_plain_class_fields exactly: __init__'s body
-    must be a flat sequence of `self.<name> = <name>` assignments, one
-    per parameter, in order -- name for name, no reordering, nothing
-    computed. Returns an ordered tuple, or None if not inferable."""
+    must be a flat sequence of `self.<name> = <name>` or
+    `self.<name>: Type = <name>` (v1.6 -- ast.AnnAssign, a standard
+    modern, type-hinted idiom) assignments, one per parameter, in order
+    -- name for name, no reordering, nothing computed. Returns an
+    ordered tuple, or None if not inferable."""
     init = next(
         (s for s in class_def.body if isinstance(s, ast.FunctionDef) and s.name == "__init__"),
         None,
@@ -149,65 +155,14 @@ def _infer_plain_class_fields(class_def):
 
     fields = []
     for stmt in body:
-        if not (
-            isinstance(stmt, ast.Assign)
-            and len(stmt.targets) == 1
-            and isinstance(stmt.targets[0], ast.Attribute)
-            and isinstance(stmt.targets[0].value, ast.Name)
-            and stmt.targets[0].value.id == "self"
-            and isinstance(stmt.value, ast.Name)
-            and stmt.value.id in param_names
-        ):
-            return None
-        fields.append(stmt.targets[0].attr)
-
-    if fields != param_names or len(set(fields)) != len(fields):
-        return None
-    return tuple(fields)
-
-
-def _infer_plain_class_fields_lenient(class_def):
-    """Diagnostic-only variant of _infer_plain_class_fields: additionally
-    accepts `self.<name>: Type = <name>` (ast.AnnAssign), a very common
-    modern Python idiom the REAL guard._infer_plain_class_fields does
-    NOT accept (verified against asr/guard.py's actual source -- it only
-    matches ast.Assign). Used only to measure how many corpus sites are
-    blocked by this specific, narrow, easily-fixable gap -- never to
-    decide actual qualification."""
-    init = next(
-        (s for s in class_def.body if isinstance(s, ast.FunctionDef) and s.name == "__init__"),
-        None,
-    )
-    if init is None:
-        return None
-    params = [a.arg for a in init.args.args]
-    if not params or params[0] != "self" or len(params) == 1:
-        return None
-    param_names = params[1:]
-
-    body = init.body
-    if (
-        body
-        and isinstance(body[0], ast.Expr)
-        and isinstance(body[0].value, ast.Constant)
-        and isinstance(body[0].value.value, str)
-    ):
-        body = body[1:]
-
-    fields = []
-    for stmt in body:
-        target = None
-        value = None
-        if (
-            isinstance(stmt, ast.Assign)
-            and len(stmt.targets) == 1
-            and isinstance(stmt.targets[0], ast.Attribute)
-        ):
+        if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1:
             target, value = stmt.targets[0], stmt.value
-        elif isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Attribute):
+        elif isinstance(stmt, ast.AnnAssign) and stmt.value is not None:
             target, value = stmt.target, stmt.value
+        else:
+            return None
         if not (
-            target is not None
+            isinstance(target, ast.Attribute)
             and isinstance(target.value, ast.Name)
             and target.value.id == "self"
             and isinstance(value, ast.Name)
@@ -262,26 +217,6 @@ def build_class_registry(tree):
         if fields and not _defines_own_setattr(node):
             registry[node.name] = ClassInfo(node.name, "mutate", fields, {})
     return registry
-
-
-def build_annassign_blocked_names(tree, registry):
-    """Diagnostic-only: names of plain classes that fail the REAL
-    inference (registry, already built) but would succeed under the
-    lenient (AnnAssign-accepting) variant -- i.e. classes blocked
-    specifically by this one gap, not some other reason."""
-    blocked = set()
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.ClassDef):
-            continue
-        if node.name in registry:
-            continue
-        if any(_is_dataclass_decorator(d) for d in node.decorator_list):
-            continue  # dataclasses aren't affected by this gap at all
-        if _infer_plain_class_fields(node) is not None:
-            continue  # already registers strictly; not blocked by this
-        if _infer_plain_class_fields_lenient(node) is not None and not _defines_own_setattr(node):
-            blocked.add(node.name)
-    return blocked
 
 
 def build_helper_registry(tree):
@@ -368,6 +303,20 @@ def call_matches_inlinable_helper(call_node, var_name, helper_registry):
 # Escape-checked qualification for one accumulator candidate
 # --------------------------------------------------------------------------
 
+def _call_target_matches_class(call_node, class_name):
+    """True when call_node's callee is a bare `class_name(...)` or a
+    module-qualified `module.class_name(...)` call (v1.6, mirrors
+    transform.py's real _call_target_matches_class). Matched by
+    attribute name alone -- see module docstring for why identity
+    beyond a name match isn't (and can't be, statically) verified."""
+    fn = call_node.func
+    if isinstance(fn, ast.Name):
+        return fn.id == class_name
+    if isinstance(fn, ast.Attribute):
+        return fn.attr == class_name
+    return False
+
+
 def qualifies(loop_node, var_name, info, registry, helper_registry):
     """Statically replays _analyze_loop_body / _analyze_mutation_loop_body's
     escape check + reconstruction/mutation recognition against one
@@ -377,8 +326,8 @@ def qualifies(loop_node, var_name, info, registry, helper_registry):
     reconstruction_seen = [False]  # single-slot mutable cell (reconstruct mode only)
 
     def is_known_reconstruction(value):
-        if isinstance(value, ast.Call) and isinstance(value.func, ast.Name):
-            if value.func.id == info.name and ctor_supplies_all_fields(value, info.fields):
+        if isinstance(value, ast.Call) and _call_target_matches_class(value, info.name):
+            if ctor_supplies_all_fields(value, info.fields):
                 return True
         if is_replace_call(value, var_name) and replace_keywords_known(value, fields):
             return True
@@ -392,8 +341,8 @@ def qualifies(loop_node, var_name, info, registry, helper_registry):
                 # info's class/fields (cross-parameter-name rewrite is
                 # not attempted; see module docstring limitation 2's
                 # spirit -- this is a same-file-only, best-effort check).
-                if isinstance(ret_expr, ast.Call) and isinstance(ret_expr.func, ast.Name):
-                    if ret_expr.func.id == info.name and ctor_supplies_all_fields(ret_expr, info.fields):
+                if isinstance(ret_expr, ast.Call) and _call_target_matches_class(ret_expr, info.name):
+                    if ctor_supplies_all_fields(ret_expr, info.fields):
                         return True
                 if isinstance(ret_expr, ast.Call):
                     helper_arg_names = {
@@ -519,58 +468,29 @@ def _has_any_write(loop_body, var_name):
     return found[0]
 
 
-def _qualified_call_short_name(call_node):
-    """The bare class name of a `module.ClassName(...)` call, or None --
-    used only for the qualified_name_blocked diagnostic below, never for
-    actual qualification (see its docstring)."""
-    if isinstance(call_node, ast.Call) and isinstance(call_node.func, ast.Attribute):
-        return call_node.func.attr
-    return None
-
-
-def candidate_sites_for_loop(loop_node, preceding_stmts, registry, annassign_blocked, helper_registry):
-    """Yields (var_name, ClassInfo_or_None, blocked_reason) for every
-    candidate accumulator on this loop whose init is a call naming a
-    class this file's registries recognize, and which is actually
-    reassigned/mutated somewhere in the loop body.
-
-    blocked_reason is None for a real candidate (info is a ClassInfo),
-    or one of two verified, narrow, real limitations of the actual
-    tool -- reported as their own diagnostic categories rather than
-    silently folded into "doesn't qualify," mirroring the Clojure
-    study's own analysis-gap-vs-structural-ceiling breakdown:
-
-    - "qualified_name": transform.py's actual _find_accumulator
-      requires `isinstance(call.func, ast.Name)` for the pre-loop init
-      (confirmed against the real source) -- `p = module.ClassName(...)`
-      is rejected at the very first qualification step. Common in real
-      Python code (`import module` + `module.Class(...)`, as opposed to
-      `from module import Class`).
-    - "annassign": guard._infer_plain_class_fields (confirmed against
-      the real source) only matches `self.name = name` (ast.Assign),
-      not `self.name: Type = name` (ast.AnnAssign) -- a very common
-      modern, type-hinted idiom."""
+def candidate_sites_for_loop(loop_node, preceding_stmts, registry, helper_registry):
+    """Yields (var_name, ClassInfo) for every candidate accumulator on
+    this loop whose init is a call -- bare `ClassName(...)` or
+    module-qualified `module.ClassName(...)` (v1.6, mirrors
+    transform.py's real _resolve_ctor_class) -- naming a class this
+    project's registry recognizes, supplying exactly its fields, and
+    actually reassigned/mutated somewhere in the loop body."""
     for name in _candidate_names(loop_node.body):
         init_expr = _find_pre_loop_init(preceding_stmts, name)
         if init_expr is None or not isinstance(init_expr, ast.Call):
             continue
         if not _has_any_write(loop_node.body, name):
             continue
-        if isinstance(init_expr.func, ast.Attribute):
-            short_name = _qualified_call_short_name(init_expr)
-            info = registry.get(short_name)
-            if info is not None and ctor_supplies_all_fields(init_expr, info.fields):
-                yield name, info, "qualified_name"
+        fn = init_expr.func
+        if isinstance(fn, ast.Name):
+            class_name = fn.id
+        elif isinstance(fn, ast.Attribute):
+            class_name = fn.attr
+        else:
             continue
-        if not isinstance(init_expr.func, ast.Name):
-            continue
-        class_name = init_expr.func.id
         info = registry.get(class_name)
         if info is not None and ctor_supplies_all_fields(init_expr, info.fields):
-            yield name, info, None
-            continue
-        if class_name in annassign_blocked:
-            yield name, None, "annassign"
+            yield name, info
 
 
 # --------------------------------------------------------------------------
@@ -589,7 +509,9 @@ def analyze_project(project, domain, root):
     if two files define an unrelated class with the same name, the
     later one wins in the merged registry -- the same "assumed same
     project, rare false match" caveat analyze.clj's own README states
-    for its record-name matching."""
+    for its record-name matching (now applies equally to qualified
+    `module.ClassName(...)` calls, matched by attribute name alone --
+    see this module's docstring)."""
     files = list(python_files(root))
     trees = []
     for path in files:
@@ -602,40 +524,26 @@ def analyze_project(project, domain, root):
     for tree in trees:
         registry.update(build_class_registry(tree))
         helper_registry.update(build_helper_registry(tree))
-    annassign_blocked = set()
-    for tree in trees:
-        annassign_blocked |= build_annassign_blocked_names(tree, registry)
 
     total_candidates = 0
     qualified = 0
     forms_with_a_candidate = 0
     forms_qualified = 0
-    qualified_name_blocked = 0
-    annassign_blocked_count = 0
 
     for tree in trees:
-        if not registry and not annassign_blocked:
+        if not registry:
             break
 
         def walk_block(stmts):
             nonlocal total_candidates, qualified, forms_with_a_candidate, forms_qualified
-            nonlocal qualified_name_blocked, annassign_blocked_count
             for i, stmt in enumerate(stmts):
                 if isinstance(stmt, (ast.While, ast.For)):
-                    sites = list(
-                        candidate_sites_for_loop(stmt, stmts[:i], registry, annassign_blocked, helper_registry)
-                    )
+                    sites = list(candidate_sites_for_loop(stmt, stmts[:i], registry, helper_registry))
                     if sites:
                         forms_with_a_candidate += 1
                         form_ok = False
-                        for var_name, info, blocked in sites:
+                        for var_name, info in sites:
                             total_candidates += 1
-                            if blocked == "qualified_name":
-                                qualified_name_blocked += 1
-                                continue
-                            if blocked == "annassign":
-                                annassign_blocked_count += 1
-                                continue
                             if qualifies(stmt, var_name, info, registry, helper_registry):
                                 qualified += 1
                                 form_ok = True
@@ -659,8 +567,6 @@ def analyze_project(project, domain, root):
         "files": len(files),
         "candidate_bindings": total_candidates,
         "qualified_bindings": qualified,
-        "qualified_name_blocked_bindings": qualified_name_blocked,
-        "annassign_blocked_bindings": annassign_blocked_count,
         "candidate_forms": forms_with_a_candidate,
         "qualified_forms": forms_qualified,
     }
@@ -675,23 +581,13 @@ def print_summary(stats):
     forms_q = sum(s["qualified_forms"] for s in stats)
     binds_c = sum(s["candidate_bindings"] for s in stats)
     binds_q = sum(s["qualified_bindings"] for s in stats)
-    binds_qname = sum(s["qualified_name_blocked_bindings"] for s in stats)
-    binds_ann = sum(s["annassign_blocked_bindings"] for s in stats)
 
     print("\n======== ASR pattern corpus study -- gate-faithful pass (Python) ========")
     print(f"Projects: {len(stats)}   Files: {sum(s['files'] for s in stats)}")
     print(f"Forms with >=1 syntactic record-accumulator candidate: {forms_c}")
     print(f"  of which qualify under the REAL gates: {forms_q} ({pct(forms_q, forms_c)})")
     print(f"Individual accumulator-binding candidates: {binds_c}")
-    print(f"  of which qualify under the REAL gates            : {binds_q} ({pct(binds_q, binds_c)})")
-    print(f"  of which blocked ONLY by module-qualified ctor call")
-    print(f"    (p = module.Class(...) -- transform.py's real")
-    print(f"    _find_accumulator requires a bare Name call)   : {binds_qname} ({pct(binds_qname, binds_c)})")
-    print(f"  of which blocked ONLY by annotated self-assign")
-    print(f"    (self.x: T = x -- guard._infer_plain_class_fields")
-    print(f"    only matches unannotated self.x = x)           : {binds_ann} ({pct(binds_ann, binds_c)})")
-    unaccounted = binds_c - binds_q - binds_qname - binds_ann
-    print(f"  remaining, disqualified for other reasons          : {unaccounted} ({pct(unaccounted, binds_c)})")
+    print(f"  of which qualify under the REAL gates: {binds_q} ({pct(binds_q, binds_c)})")
     print("\n--- by domain (qualified forms / candidate forms) ---")
     domains = sorted({s["domain"] for s in stats})
     for dom in domains:

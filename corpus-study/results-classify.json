@@ -6,8 +6,6 @@
       "files": 1003,
       "candidate_bindings": 0,
       "qualified_bindings": 0,
-      "qualified_name_blocked_bindings": 0,
-      "annassign_blocked_bindings": 0,
       "candidate_forms": 0,
       "qualified_forms": 0
     },
@@ -17,8 +15,6 @@
       "files": 78,
       "candidate_bindings": 0,
       "qualified_bindings": 0,
-      "qualified_name_blocked_bindings": 0,
-      "annassign_blocked_bindings": 0,
       "candidate_forms": 0,
       "qualified_forms": 0
     },
@@ -28,8 +24,6 @@
       "files": 60,
       "candidate_bindings": 0,
       "qualified_bindings": 0,
-      "qualified_name_blocked_bindings": 0,
-      "annassign_blocked_bindings": 0,
       "candidate_forms": 0,
       "qualified_forms": 0
     },
@@ -39,8 +33,6 @@
       "files": 67,
       "candidate_bindings": 0,
       "qualified_bindings": 0,
-      "qualified_name_blocked_bindings": 0,
-      "annassign_blocked_bindings": 0,
       "candidate_forms": 0,
       "qualified_forms": 0
     },
@@ -50,8 +42,6 @@
       "files": 26,
       "candidate_bindings": 0,
       "qualified_bindings": 0,
-      "qualified_name_blocked_bindings": 0,
-      "annassign_blocked_bindings": 0,
       "candidate_forms": 0,
       "qualified_forms": 0
     },
@@ -61,8 +51,6 @@
       "files": 109,
       "candidate_bindings": 0,
       "qualified_bindings": 0,
-      "qualified_name_blocked_bindings": 0,
-      "annassign_blocked_bindings": 0,
       "candidate_forms": 0,
       "qualified_forms": 0
     },
@@ -72,8 +60,6 @@
       "files": 335,
       "candidate_bindings": 0,
       "qualified_bindings": 0,
-      "qualified_name_blocked_bindings": 0,
-      "annassign_blocked_bindings": 0,
       "candidate_forms": 0,
       "qualified_forms": 0
     },
@@ -83,8 +69,6 @@
       "files": 65,
       "candidate_bindings": 0,
       "qualified_bindings": 0,
-      "qualified_name_blocked_bindings": 0,
-      "annassign_blocked_bindings": 0,
       "candidate_forms": 0,
       "qualified_forms": 0
     },
@@ -94,8 +78,6 @@
       "files": 330,
       "candidate_bindings": 0,
       "qualified_bindings": 0,
-      "qualified_name_blocked_bindings": 0,
-      "annassign_blocked_bindings": 0,
       "candidate_forms": 0,
       "qualified_forms": 0
     },
@@ -105,8 +87,6 @@
       "files": 146,
       "candidate_bindings": 0,
       "qualified_bindings": 0,
-      "qualified_name_blocked_bindings": 0,
-      "annassign_blocked_bindings": 0,
       "candidate_forms": 0,
       "qualified_forms": 0
     },
@@ -116,8 +96,6 @@
       "files": 77,
       "candidate_bindings": 0,
       "qualified_bindings": 0,
-      "qualified_name_blocked_bindings": 0,
-      "annassign_blocked_bindings": 0,
       "candidate_forms": 0,
       "qualified_forms": 0
     },
@@ -127,8 +105,6 @@
       "files": 83,
       "candidate_bindings": 0,
       "qualified_bindings": 0,
-      "qualified_name_blocked_bindings": 0,
-      "annassign_blocked_bindings": 0,
       "candidate_forms": 0,
       "qualified_forms": 0
     },
@@ -138,8 +114,6 @@
       "files": 336,
       "candidate_bindings": 0,
       "qualified_bindings": 0,
-      "qualified_name_blocked_bindings": 0,
-      "annassign_blocked_bindings": 0,
       "candidate_forms": 0,
       "qualified_forms": 0
     },
@@ -149,8 +123,6 @@
       "files": 269,
       "candidate_bindings": 0,
       "qualified_bindings": 0,
-      "qualified_name_blocked_bindings": 0,
-      "annassign_blocked_bindings": 0,
       "candidate_forms": 0,
       "qualified_forms": 0
     },
@@ -160,8 +132,6 @@
       "files": 405,
       "candidate_bindings": 0,
       "qualified_bindings": 0,
-      "qualified_name_blocked_bindings": 0,
-      "annassign_blocked_bindings": 0,
       "candidate_forms": 0,
       "qualified_forms": 0
     },
@@ -171,8 +141,6 @@
       "files": 466,
       "candidate_bindings": 0,
       "qualified_bindings": 0,
-      "qualified_name_blocked_bindings": 0,
-      "annassign_blocked_bindings": 0,
       "candidate_forms": 0,
       "qualified_forms": 0
     },
@@ -182,8 +150,6 @@
       "files": 270,
       "candidate_bindings": 0,
       "qualified_bindings": 0,
-      "qualified_name_blocked_bindings": 0,
-      "annassign_blocked_bindings": 0,
       "candidate_forms": 0,
       "qualified_forms": 0
     },
@@ -193,8 +159,6 @@
       "files": 54,
       "candidate_bindings": 0,
       "qualified_bindings": 0,
-      "qualified_name_blocked_bindings": 0,
-      "annassign_blocked_bindings": 0,
       "candidate_forms": 0,
       "qualified_forms": 0
     },
@@ -204,8 +168,6 @@
       "files": 441,
       "candidate_bindings": 0,
       "qualified_bindings": 0,
-      "qualified_name_blocked_bindings": 0,
-      "annassign_blocked_bindings": 0,
       "candidate_forms": 0,
       "qualified_forms": 0
     },
@@ -215,8 +177,6 @@
       "files": 441,
       "candidate_bindings": 1,
       "qualified_bindings": 0,
-      "qualified_name_blocked_bindings": 0,
-      "annassign_blocked_bindings": 0,
       "candidate_forms": 1,
       "qualified_forms": 0
     },
@@ -226,8 +186,6 @@
       "files": 691,
       "candidate_bindings": 0,
       "qualified_bindings": 0,
-      "qualified_name_blocked_bindings": 0,
-      "annassign_blocked_bindings": 0,
       "candidate_forms": 0,
       "qualified_forms": 0
     },
@@ -237,8 +195,6 @@
       "files": 1216,
       "candidate_bindings": 0,
       "qualified_bindings": 0,
-      "qualified_name_blocked_bindings": 0,
-      "annassign_blocked_bindings": 0,
       "candidate_forms": 0,
       "qualified_forms": 0
     },
@@ -248,8 +204,6 @@
       "files": 1599,
       "candidate_bindings": 0,
       "qualified_bindings": 0,
-      "qualified_name_blocked_bindings": 0,
-      "annassign_blocked_bindings": 0,
       "candidate_forms": 0,
       "qualified_forms": 0
     },
@@ -259,8 +213,6 @@
       "files": 213,
       "candidate_bindings": 0,
       "qualified_bindings": 0,
-      "qualified_name_blocked_bindings": 0,
-      "annassign_blocked_bindings": 0,
       "candidate_forms": 0,
       "qualified_forms": 0
     },
@@ -270,8 +222,6 @@
       "files": 1127,
       "candidate_bindings": 0,
       "qualified_bindings": 0,
-      "qualified_name_blocked_bindings": 0,
-      "annassign_blocked_bindings": 0,
       "candidate_forms": 0,
       "qualified_forms": 0
     },
@@ -281,8 +231,6 @@
       "files": 42,
       "candidate_bindings": 0,
       "qualified_bindings": 0,
-      "qualified_name_blocked_bindings": 0,
-      "annassign_blocked_bindings": 0,
       "candidate_forms": 0,
       "qualified_forms": 0
     },
@@ -292,8 +240,6 @@
       "files": 125,
       "candidate_bindings": 0,
       "qualified_bindings": 0,
-      "qualified_name_blocked_bindings": 0,
-      "annassign_blocked_bindings": 0,
       "candidate_forms": 0,
       "qualified_forms": 0
     }

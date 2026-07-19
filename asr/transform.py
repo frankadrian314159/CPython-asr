@@ -88,6 +88,21 @@ shape is a single trailing `return p` (one accumulator) or
 `return p, q, ...` (naming exactly the processed accumulators, FOL's
 Two-body/Kalman shape). Every unrecognized shape is declined, never
 miscompiled -- the same safe-by-abort discipline FOL's own walk uses.
+
+v1.6 recognizes module-qualified constructor calls -- `p =
+mymod.Point(...)` (from `import mymod`), not just the bare `p =
+Point(...)` shape (from `from mymod import Point`) -- both at the
+pre-loop init site (_find_accumulator) and at every reconstruction site
+(_reconstruction_field_values), via a single-level `module.ClassName`
+resolution through the function's own __globals__ (see
+_resolve_ctor_class). Motivated directly by cpython-asr's own corpus
+study (corpus-study/README.md): `import module` + `module.Class(...)`
+turned out to be a common real-world idiom the pass previously couldn't
+see through at all -- the direct analog of FOL's own corpus-driven fix
+making user-defined macros visible to its AST walker. Deliberately
+narrow: only one level of qualification (`module.Class`, not
+`a.b.Class`), and only for constructor calls, not for _try_inline_call's
+helper-function resolution, which stays Name-only.
 """
 
 import ast
@@ -205,18 +220,32 @@ def _references_only_as_field_reads(node, alias_names, fields):
     return ok
 
 
+def _call_target_matches_class(call_node, class_name):
+    """True when call_node's callee is a bare `class_name(...)` or a
+    single-level qualified `module.class_name(...)` call (v1.6) --
+    matching a reconstruction site against an ALREADY-resolved
+    accumulator class by name, not initial resolution (see
+    _resolve_ctor_class, used by _find_accumulator for that)."""
+    fn = call_node.func
+    if isinstance(fn, ast.Name):
+        return fn.id == class_name
+    if isinstance(fn, ast.Attribute):
+        return fn.attr == class_name
+    return False
+
+
 def _reconstruction_field_values(value, alias_names, class_name, fields):
-    """If `value` is a `ClassName(...)` full reconstruction or a
-    `dataclasses.replace(alias, ...)` partial reconstruction (for some
-    alias in alias_names), and every reference to an alias anywhere in
-    `value` is a recognized `.field` read, return {field_name:
-    value_expr} for the fields actually touched (all of them, for a
-    full reconstruction). Returns None if `value` isn't one of these two
-    recognized shapes, or if an alias escapes some other way."""
+    """If `value` is a `ClassName(...)` or `module.ClassName(...)` full
+    reconstruction or a `dataclasses.replace(alias, ...)` partial
+    reconstruction (for some alias in alias_names), and every reference
+    to an alias anywhere in `value` is a recognized `.field` read,
+    return {field_name: value_expr} for the fields actually touched (all
+    of them, for a full reconstruction). Returns None if `value` isn't
+    one of these two recognized shapes, or if an alias escapes some
+    other way."""
     if (
         isinstance(value, ast.Call)
-        and isinstance(value.func, ast.Name)
-        and value.func.id == class_name
+        and _call_target_matches_class(value, class_name)
         and not any(kw.arg is None for kw in value.keywords)
         and _ctor_supplies_all_fields(value, fields)
     ):
@@ -515,10 +544,29 @@ def _classify_accumulator_class(cls):
     return "mutate", fields
 
 
+def _resolve_ctor_class(call_node, globalns):
+    """Resolves a Call node's callee to (cls, bare_name) for either a
+    bare `ClassName(...)` call or a single-level qualified
+    `module.ClassName(...)` call, where `module` is a name bound in
+    globalns (v1.6) -- else (None, None). Single-level only: deeper
+    qualification (`a.b.ClassName(...)`) is out of scope. `bare_name` is
+    always the plain class name (never the qualified spelling), since
+    that's what class_name comparisons elsewhere in this module key on."""
+    fn = call_node.func
+    if isinstance(fn, ast.Name):
+        return globalns.get(fn.id), fn.id
+    if isinstance(fn, ast.Attribute) and isinstance(fn.value, ast.Name):
+        mod = globalns.get(fn.value.id)
+        if mod is not None:
+            return getattr(mod, fn.attr, None), fn.attr
+    return None, None
+
+
 def _find_accumulator(pre_loop_stmts, globalns, already_processed):
     """Scan the statements before the while loop for `p = ClassName(...)`
-    where ClassName qualifies under _classify_accumulator_class and the
-    call supplies exactly its fields. Returns (index, var_name, cls,
+    or `p = module.ClassName(...)` (v1.6, via _resolve_ctor_class) where
+    ClassName qualifies under _classify_accumulator_class and the call
+    supplies exactly its fields. Returns (index, var_name, cls,
     fields, mode). Called repeatedly by the multi-accumulator fixpoint
     in _try_transform_inner: for reconstruct-mode accumulators, once
     processed, the raw constructor assign is replaced by scalar-init
@@ -541,9 +589,9 @@ def _find_accumulator(pre_loop_stmts, globalns, already_processed):
         if var_name in already_processed:
             continue
         call = stmt.value
-        if not (isinstance(call, ast.Call) and isinstance(call.func, ast.Name)):
+        if not isinstance(call, ast.Call):
             continue
-        cls = globalns.get(call.func.id)
+        cls, _ = _resolve_ctor_class(call, globalns)
         classified = _classify_accumulator_class(cls)
         if classified is None:
             continue
