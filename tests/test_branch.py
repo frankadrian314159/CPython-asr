@@ -68,11 +68,12 @@ def _run_elif_chain(n):
 
 
 def test_elif_chain_three_branches():
-    """FOL's Phase shape (case-branched, here as a 3-way elif chain --
-    Python has no direct `case` analog with the same key-dispatch
-    semantics, so if/elif/elif/else is the natural port). Python parses
-    `elif` as a nested `If` in `orelse`, which _try_branch_reconstruction
-    handles by recursing."""
+    """FOL's Phase shape (case-branched), ported here as a 3-way elif
+    chain. Python parses `elif` as a nested `If` in `orelse`, which
+    _try_branch_reconstruction handles by recursing. See test_match.py
+    for the same shape ported to Python's own match/case (v1.3) --
+    if/elif/else and match/case are two separate, non-nesting
+    reconstruction shapes; this test exercises the former."""
     expected = _run_elif_chain(41)
     transformed = try_transform(_run_elif_chain)
     assert transformed is not None

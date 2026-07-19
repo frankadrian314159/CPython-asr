@@ -36,6 +36,18 @@ v1.2 adds two more of FOL's own pieces:
   are handled correctly because each pass's rewrite is visible to the
   next scan, exactly as in FOL.
 
+v1.3 adds Python's own `match`/`case` (3.10+, PEP 634-636) as a second
+recognized branch shape, restricted to the literal-value-dispatch
+subset that maps onto FOL's own `case`: every case's pattern must be a
+plain literal (MatchValue/MatchSingleton) except a mandatory final
+true wildcard `case _:` (FOL's default clause), no per-case guards, no
+capture/OR/structural/sequence/mapping patterns. Python's `match`
+evaluates its subject expression exactly once regardless of how many
+cases it has, so the rewrite binds it to a one-time temporary rather
+than re-testing the raw subject per case -- see
+`_try_match_reconstruction`'s docstring and the `prelude` plumbing in
+`_analyze_loop_body`/`_rewrite_loop_body`.
+
 Scope still deliberately narrow otherwise: the only supported post-loop
 shape is a single trailing `return p` (one accumulator) or
 `return p, q, ...` (naming exactly the processed accumulators, FOL's
@@ -344,6 +356,102 @@ def _try_branch_reconstruction(if_node, var_name, class_name, fields):
 
 
 # --------------------------------------------------------------------------
+# match/case reconstruction (v1.3, Python's own analog of FOL's `case`)
+# --------------------------------------------------------------------------
+
+def _try_match_reconstruction(match_node, var_name, class_name, fields):
+    """FOL's Reconstruct case-clause handling, ported to Python's
+    match/case (3.10+, PEP 634-636): every case's pattern must be a
+    plain literal-value pattern (MatchValue or MatchSingleton, i.e.
+    `case 0:`, `case "x":`, `case True:`) EXCEPT the mandatory final
+    case, which must be a true wildcard `case _:` (MatchAs with no
+    sub-pattern and no capture name) -- FOL's mandatory default clause.
+    No per-case guards, no capture/OR/structural/sequence/mapping
+    patterns -- out of scope, matching FOL's own `case`, which
+    dispatches a single key against a fixed set of literal values, not
+    arbitrary structural matching. Every case body must be exactly one
+    direct reconstruction assignment (no inlining, no nested branching
+    inside a case -- same restriction _try_branch_reconstruction places
+    on if/elif leaves; match and if/elif branches don't nest into each
+    other either, for the same reason).
+
+    Python's `match` evaluates its subject expression exactly once, no
+    matter how many cases it has -- the rewrite must preserve that
+    (the subject could, in general, have side effects), so this
+    returns (leaf_assigns, field_values, prelude) where `prelude` is a
+    single-element list of (temp_name, subject_expr): the caller must
+    bind temp_name = subject_expr exactly once, before evaluating
+    field_values, which reference temp_name rather than re-evaluating
+    the raw subject once per case."""
+    if any(isinstance(n, ast.Name) and n.id == var_name for n in ast.walk(match_node.subject)):
+        return None  # FOL's own case dispatches on an unrelated key, never the accumulator itself
+    if len(match_node.cases) < 2:
+        return None  # need at least one real case plus the mandatory wildcard default
+
+    *value_cases, default_case = match_node.cases
+    if not (
+        isinstance(default_case.pattern, ast.MatchAs)
+        and default_case.pattern.pattern is None
+        and default_case.pattern.name is None
+        and default_case.guard is None
+    ):
+        return None  # last case must be a true `case _:`, not a capture or further pattern
+
+    for case in value_cases:
+        if case.guard is not None:
+            return None
+        if not isinstance(case.pattern, (ast.MatchValue, ast.MatchSingleton)):
+            return None
+
+    leaves = []  # list of (match_case, Assign, {field: value_expr})
+    for case in match_node.cases:
+        if len(case.body) != 1:
+            return None
+        stmt = case.body[0]
+        if not (
+            isinstance(stmt, ast.Assign)
+            and len(stmt.targets) == 1
+            and isinstance(stmt.targets[0], ast.Name)
+            and stmt.targets[0].id == var_name
+        ):
+            return None
+        values = _reconstruction_field_values(stmt.value, frozenset({var_name}), class_name, fields)
+        if values is None:
+            return None
+        leaves.append((case, stmt, values))
+
+    subject_temp = f"__asr_{var_name}_match_subject"
+
+    def case_literal(case):
+        pattern = case.pattern
+        if isinstance(pattern, ast.MatchValue):
+            return copy.deepcopy(pattern.value)
+        return ast.Constant(value=pattern.value)  # MatchSingleton: True/False/None
+
+    def branch_expr(case, field):
+        _, _, values = next(leaf for leaf in leaves if leaf[0] is case)
+        if field in values:
+            return copy.deepcopy(values[field])
+        return ast.Attribute(value=ast.Name(id=var_name, ctx=ast.Load()), attr=field, ctx=ast.Load())
+
+    def build_field_expr(field):
+        expr = branch_expr(default_case, field)
+        for case in reversed(value_cases):
+            test = ast.Compare(
+                left=ast.Name(id=subject_temp, ctx=ast.Load()),
+                ops=[ast.Eq()],
+                comparators=[case_literal(case)],
+            )
+            expr = ast.IfExp(test=test, body=branch_expr(case, field), orelse=expr)
+        return ast.copy_location(expr, match_node)
+
+    field_values = {f: build_field_expr(f) for f in fields}
+    leaf_assigns = [stmt for _, stmt, _ in leaves]
+    prelude = [(subject_temp, copy.deepcopy(match_node.subject))]
+    return leaf_assigns, field_values, prelude
+
+
+# --------------------------------------------------------------------------
 # Phase 1: qualification
 # --------------------------------------------------------------------------
 
@@ -382,11 +490,15 @@ def _find_accumulator(pre_loop_stmts, globalns):
 def _analyze_loop_body(while_node, var_name, class_name, fields, globalns):
     """Walk the while loop's body looking for exactly one recognized
     reconstruction of `var_name` -- direct, dataclasses.replace-based, a
-    one-level inlined helper call, or an if/elif/.../else chain -- and no
-    other bare reference to it. Returns (reconstruction_stmt,
-    alias_names: frozenset, field_values: dict[str, ast.expr])."""
+    one-level inlined helper call, an if/elif/.../else chain, or a
+    literal-dispatch match/case block -- and no other bare reference to
+    it. Returns (reconstruction_stmt, alias_names: frozenset,
+    field_values: dict[str, ast.expr], prelude: list[(str, ast.expr)]).
+    `prelude` is normally empty; a match/case reconstruction populates
+    it with the one-time subject-binding _rewrite_loop_body must emit
+    before field_values (see _try_match_reconstruction)."""
     reconstruction_stmt = None
-    result = None  # (alias_names, field_values)
+    result = None  # (alias_names, field_values, prelude)
     ok = True
 
     def visit(node):
@@ -415,7 +527,7 @@ def _analyze_loop_body(while_node, var_name, class_name, fields, globalns):
             field_values = _reconstruction_field_values(value, frozenset({var_name}), class_name, fields)
             if field_values is not None:
                 reconstruction_stmt = node
-                result = (frozenset({var_name}), field_values)
+                result = (frozenset({var_name}), field_values, [])
                 for expr in field_values.values():
                     visit(expr)
                 return
@@ -425,7 +537,7 @@ def _analyze_loop_body(while_node, var_name, class_name, fields, globalns):
                 if inlined is not None:
                     accumulator_param, substituted = inlined
                     reconstruction_stmt = node
-                    result = (frozenset({var_name, accumulator_param}), substituted)
+                    result = (frozenset({var_name, accumulator_param}), substituted, [])
                     for expr in substituted.values():
                         visit(expr)
                     return
@@ -450,7 +562,29 @@ def _analyze_loop_body(while_node, var_name, class_name, fields, globalns):
             if branch_result is not None:
                 leaf_assigns, field_values = branch_result
                 reconstruction_stmt = node
-                result = (frozenset({var_name}), field_values)
+                result = (frozenset({var_name}), field_values, [])
+                for expr in field_values.values():
+                    visit(expr)
+                return
+            ok = False
+            return
+
+        if isinstance(node, ast.Match):
+            # Same "only engage validation if it actually mentions the
+            # accumulator" guard as ast.If above -- an unrelated match
+            # statement in the loop body must not force a decline.
+            if not any(isinstance(n, ast.Name) and n.id == var_name for n in ast.walk(node)):
+                for child in ast.iter_child_nodes(node):
+                    visit(child)
+                return
+            if reconstruction_stmt is not None:
+                ok = False
+                return
+            match_result = _try_match_reconstruction(node, var_name, class_name, fields)
+            if match_result is not None:
+                leaf_assigns, field_values, prelude = match_result
+                reconstruction_stmt = node
+                result = (frozenset({var_name}), field_values, prelude)
                 for expr in field_values.values():
                     visit(expr)
                 return
@@ -465,8 +599,8 @@ def _analyze_loop_body(while_node, var_name, class_name, fields, globalns):
 
     if not ok or result is None:
         raise AsrDecline("loop body has an unrecognized accumulator use")
-    alias_names, field_values = result
-    return reconstruction_stmt, alias_names, field_values
+    alias_names, field_values, prelude = result
+    return reconstruction_stmt, alias_names, field_values, prelude
 
 
 # --------------------------------------------------------------------------
@@ -501,11 +635,21 @@ def _mk_assign(target_name, value_expr, loc_from):
     return stmt
 
 
-def _rewrite_loop_body(while_node, alias_names, scalar_names, reconstruction_stmt, field_values):
+def _rewrite_loop_body(while_node, alias_names, scalar_names, reconstruction_stmt, field_values, prelude):
     subst = _FieldSubstituter(alias_names, scalar_names)
     new_body = []
     for stmt in while_node.body:
         if stmt is reconstruction_stmt:
+            # A match/case reconstruction's prelude binds its subject
+            # expression to a one-time temporary FIRST -- Python's own
+            # match statement also evaluates the subject exactly once,
+            # no matter how many cases it has, and field_values below
+            # references that temporary rather than the raw subject
+            # expression, so this must run before the per-field
+            # temp/scalar dance, not interleaved with it. Empty for
+            # every other reconstruction shape.
+            for temp_name, subject_expr in prelude:
+                new_body.append(_mk_assign(temp_name, subst.visit(copy.deepcopy(subject_expr)), stmt))
             # Parallel-update semantics (mirrors FOL's psetq/recur):
             # evaluate every new value against the CURRENT scalars first,
             # via temporaries, before reassigning any of them. Without
@@ -574,12 +718,16 @@ def _process_one_accumulator(pre_loop_stmts, while_node, globalns, existing_name
             if isinstance(node, ast.Name) and node.id == var_name:
                 raise AsrDecline("accumulator referenced between its init and the loop")
 
-    reconstruction_stmt, alias_names, field_values = _analyze_loop_body(
+    reconstruction_stmt, alias_names, field_values, prelude = _analyze_loop_body(
         while_node, var_name, cls.__name__, fields, globalns
     )
 
     scalar_names = {f: _mangled_name(var_name, f) for f in fields}
-    candidate_names = list(scalar_names.values()) + [f"__asr_tmp_{n}" for n in scalar_names.values()]
+    candidate_names = (
+        list(scalar_names.values())
+        + [f"__asr_tmp_{n}" for n in scalar_names.values()]
+        + [temp_name for temp_name, _ in prelude]
+    )
     for name in candidate_names:
         if name in existing_names:
             raise AsrDecline(f"scalar name collision: {name}")
@@ -607,7 +755,9 @@ def _process_one_accumulator(pre_loop_stmts, while_node, globalns, existing_name
         for field in fields
     ]
     new_pre_loop_stmts = pre_loop_stmts[:accum_idx] + init_stmts + pre_loop_stmts[accum_idx + 1 :]
-    new_while_node = _rewrite_loop_body(while_node, alias_names, scalar_names, reconstruction_stmt, field_values)
+    new_while_node = _rewrite_loop_body(
+        while_node, alias_names, scalar_names, reconstruction_stmt, field_values, prelude
+    )
 
     info = {"var_name": var_name, "cls": cls, "fields": fields, "scalar_names": scalar_names}
     return new_pre_loop_stmts, new_while_node, info

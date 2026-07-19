@@ -6,15 +6,16 @@ CGO 2027 paper *"Objects Without Allocation"*'s Threats to Validity
 section, which asserts the mechanism "transfers to other transpiled
 dynamic languages" without demonstrating it on a second one.
 
-Given a `while` loop that threads a frozen-dataclass accumulator through
-its own back-edge -- rebuilt every iteration via a full constructor
-call, `dataclasses.replace`, or a call to a one-level-inlinable helper
-function -- `@asr` splits the accumulator into one scalar local per
-field and re-boxes only once, at the loop's exit, behind a guarded dual
-path that falls back safely if the tracked dataclass is redefined out
-from under it (via `importlib.reload`).
+Given a `while` loop that threads one or more frozen-dataclass
+accumulators through its own back-edge -- rebuilt every iteration via a
+full constructor call, `dataclasses.replace`, a call to a
+one-level-inlinable helper function, an if/elif/.../else chain, or a
+literal-dispatch match/case block -- `@asr` splits each accumulator
+into one scalar local per field and re-boxes only once, at the loop's
+exit, behind a guarded dual path that falls back safely if a tracked
+dataclass is redefined out from under it (via `importlib.reload`).
 
-## Status: v1 + v1.1 (interprocedural inlining) + v1.2 (branching, multi-accumulator)
+## Status: v1 + v1.1 (interprocedural inlining) + v1.2 (branching, multi-accumulator) + v1.3 (match/case)
 
 | FOL concept | This port |
 |---|---|
@@ -22,6 +23,7 @@ from under it (via `importlib.reload`).
 | `sec:loop` -- the classify-and-rewrite walk | `asr/transform.py::_analyze_loop_body` / `_rewrite_loop_body` |
 | `sec:inline` -- interprocedural reach by inlining | `asr/transform.py::_try_inline_call` (one-level, same restriction as FOL: callee arguments must be symbols or literals) |
 | Reconstruct's `if`/`cond` cases -- branch-shaped reconstruction | `asr/transform.py::_try_branch_reconstruction` (if/elif/.../else, mandatory terminal else, no inlining inside a branch -- same restriction as FOL) |
+| FOL's `case` -- literal-dispatch reconstruction | `asr/transform.py::_try_match_reconstruction` (Python's own `match`/`case`, 3.10+; literal/singleton patterns only, mandatory trailing `case _:`, no guards or structural patterns; subject bound to a one-time temporary since Python evaluates it exactly once) |
 | `maybe-scalar-replace-loop`/`%sr-replace-one` -- the multi-accumulator fixpoint | `asr/transform.py::_try_transform_inner`'s fixpoint loop over `_process_one_accumulator`; `return p, q, ...` for FOL's Two-body/Kalman shape |
 | `sec:world` -- the world guard | `asr/guard.py`, keyed on `(module, class)`, invalidated by wrapping `importlib.reload`; a multi-accumulator fast path is guarded by the AND of every tracked class's cell |
 | Figure 3 -- guarded dual path | every transformed function's body is `if <cell>.valid: <fast path> else: <original path>` |
@@ -37,7 +39,7 @@ works than to something living inside CPython's own compiler.
 - `asr/transform.py` -- qualification + rewrite (phases 1 and 2), inlining, branching, and the multi-accumulator fixpoint
 - `asr/guard.py` -- the world guard and `importlib.reload` wrapper
 - `asr/decorator.py` -- the `@asr` entry point
-- `tests/` -- 40 pytest cases across `test_transform.py` (core v1), `test_inline.py` (v1.1), `test_branch.py` and `test_multi_accumulator.py` (v1.2), `test_decorator.py`, `test_guard.py`
+- `tests/` -- 53 pytest cases across `test_transform.py` (core v1), `test_inline.py` (v1.1), `test_branch.py` and `test_multi_accumulator.py` (v1.2), `test_match.py` (v1.3), `test_decorator.py`, `test_guard.py`
 - `benchmarks/` -- Particle, Counter, and Assoc, ported from FOL's `benchmarks/fol-code/*.fol` (Clamp/Bounce/Phase and Two-body/Kalman are portable now that branching and multi-accumulator support exist, but aren't ported yet)
 
 ## Running
