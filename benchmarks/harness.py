@@ -68,16 +68,28 @@ def count_constructions_per_call(fn, arg, cls, batch=1):
 def run_benchmark(name, original, transformed, cell, cls, arg, n_correctness=5, trials=20):
     """Runs the full protocol for one benchmark: correctness (fast path
     vs. slow path vs. original, all must agree) gates everything else;
-    only if that passes do we report timing and allocation."""
+    only if that passes do we report timing and allocation.
+
+    `cell`/`cls` may each be a single ValidityCell/type, or a list of
+    them for a multi-accumulator benchmark (Two-body, Kalman): the fast
+    path is only exercised when EVERY cell is valid, matching the
+    AND-guard the multi-accumulator fixpoint generates, and
+    construction counts are summed across every tracked class."""
+    cells = cell if isinstance(cell, (list, tuple)) else [cell]
+    classes = cls if isinstance(cls, (list, tuple)) else [cls]
+
     print(f"=== {name} ===")
 
     baseline_results = [original(arg) for _ in range(n_correctness)]
 
-    cell.valid = True
+    for c in cells:
+        c.valid = True
     fast_results = [transformed(arg) for _ in range(n_correctness)]
-    cell.valid = False
+    for c in cells:
+        c.valid = False
     slow_results = [transformed(arg) for _ in range(n_correctness)]
-    cell.valid = True
+    for c in cells:
+        c.valid = True
 
     if not (baseline_results == fast_results == slow_results):
         print("  CORRECTNESS FAILURE -- baseline/fast/slow path disagree, skipping timing")
@@ -85,15 +97,19 @@ def run_benchmark(name, original, transformed, cell, cls, arg, n_correctness=5, 
         return None
     print(f"  Correctness: baseline, ASR fast path, and ASR fallback path bit-identical across {n_correctness} calls.")
 
-    cell.valid = False  # ensure baseline timing never accidentally takes the fast path
+    for c in cells:
+        c.valid = False  # ensure baseline timing never accidentally takes the fast path
     base_mean, base_sd = time_trials(original, arg, trials=trials)
-    cell.valid = True
+    for c in cells:
+        c.valid = True
     asr_mean, asr_sd = time_trials(transformed, arg, trials=trials)
 
-    cell.valid = False
-    base_constructions = count_constructions_per_call(original, arg, cls)
-    cell.valid = True
-    asr_constructions = count_constructions_per_call(transformed, arg, cls)
+    for c in cells:
+        c.valid = False
+    base_constructions = sum(count_constructions_per_call(original, arg, c) for c in classes)
+    for c in cells:
+        c.valid = True
+    asr_constructions = sum(count_constructions_per_call(transformed, arg, c) for c in classes)
 
     speedup = base_mean / asr_mean if asr_mean > 0 else float("inf")
     alloc_ratio = base_constructions / asr_constructions if asr_constructions > 0 else float("inf")

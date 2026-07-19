@@ -1,15 +1,30 @@
-"""Runs all three ported benchmarks and prints a summary table, mirroring
-the shape of FOL's benchmarks/run-asr-bench.lisp summary output. This is
-the "existence proof" data point for the paper's Threats to Validity
+"""Runs all fourteen ported benchmarks and prints a summary table,
+mirroring the shape of FOL's benchmarks/run-asr-bench.lisp summary
+output and matching the paper's own Table 1 benchmark set exactly. This
+is the "existence proof" data point for the paper's Threats to Validity
 section -- a minimal port, not a claim of Table 1/2 parity (single
-machine, opt-in decorator only, no interprocedural inlining, no
-multi-accumulator fixpoint).
+machine, opt-in only).
 """
 
 import platform
 import sys
 
-from benchmarks import bench_particle, bench_counter, bench_assoc
+from benchmarks import (
+    bench_particle,
+    bench_counter,
+    bench_assoc,
+    bench_rotation,
+    bench_ballistic,
+    bench_clamp,
+    bench_bounce,
+    bench_phase,
+    bench_mandelbrot,
+    bench_biquad,
+    bench_comoments,
+    bench_lorenz,
+    bench_twobody,
+    bench_kalman,
+)
 
 
 def main():
@@ -17,7 +32,22 @@ def main():
     print("200,000 iterations per call, 1 warm-up + 20 timed trials\n")
 
     results = []
-    for mod in (bench_particle, bench_counter, bench_assoc):
+    for mod in (
+        bench_particle,
+        bench_counter,
+        bench_assoc,
+        bench_rotation,
+        bench_ballistic,
+        bench_clamp,
+        bench_bounce,
+        bench_phase,
+        bench_mandelbrot,
+        bench_biquad,
+        bench_comoments,
+        bench_lorenz,
+        bench_twobody,
+        bench_kalman,
+    ):
         r = mod.main()
         if r is not None:
             results.append(r)

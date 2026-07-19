@@ -69,7 +69,7 @@ final writeback would otherwise silently under-invoke whatever a custom
 - `asr/decorator.py` -- the `@asr` entry point
 - `asr/autopatch.py` -- the automatic-application import hook (v1.5)
 - `tests/` -- 84 pytest cases across `test_transform.py` (core v1 + global/nonlocal hoisting), `test_inline.py` (v1.1), `test_branch.py` and `test_multi_accumulator.py` (v1.2), `test_match.py` (v1.3), `test_mutation.py` and `test_guard_mutation.py` (v1.4), `test_autopatch.py` (v1.5), `test_decorator.py`, `test_guard.py`
-- `benchmarks/` -- Particle, Counter, and Assoc, ported from FOL's `benchmarks/fol-code/*.fol` (Clamp/Bounce/Phase and Two-body/Kalman are portable now that branching and multi-accumulator support exist, but aren't ported yet; nothing yet exercises mutation mode or automatic application specifically)
+- `benchmarks/` -- all 14 of the paper's Table 1 benchmarks, ported from FOL's `benchmarks/fol-code/*.fol`: Particle, Counter, Assoc, Rotation, Ballistic, Clamp, Bounce, Phase, Mandelbrot, Biquad, Co-moments, Lorenz, Two-body, Kalman -- exercising every reconstruction shape (direct, `dataclasses.replace`, inlined helper, if/elif/else branch, match/case, multi-accumulator). None currently exercise mutation mode or automatic application specifically -- all 14 use frozen dataclasses via `@asr`, matching FOL's own accumulators (which are always immutable) and the paper's own benchmark set exactly; a mutate-mode or autopatch benchmark would be a new addition, not a port.
 
 ## Running
 
