@@ -327,3 +327,12 @@ printed summaries (reproduced above) report totals, the (a)/(b)/(c)/(d)
 breakdown and rebuild-mechanism split (analyze.py), and the
 qualified/blocked-by-reason breakdown (classify.py), each with a
 by-domain table.
+
+## Benchmarks
+
+`benchmarks/` ports 5 of the real sites from the case studies table above
+into working, measured benchmarks — see `benchmarks/README.md`. None
+qualified for ASR verbatim (the whole point of this study is that almost
+nothing in this corpus does); each is adapted the same way FOL's own
+corpus study needed a real "whole-program port" for its 3 hand-audited
+Clojure sites, not a verbatim match.
