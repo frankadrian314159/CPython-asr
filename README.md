@@ -14,31 +14,31 @@ field and re-boxes only once, at the loop's exit, behind a guarded dual
 path that falls back safely if the tracked dataclass is redefined out
 from under it (via `importlib.reload`).
 
-## Status: v1 + v1.1 (interprocedural inlining)
+## Status: v1 + v1.1 (interprocedural inlining) + v1.2 (branching, multi-accumulator)
 
 | FOL concept | This port |
 |---|---|
 | `sec:cand` -- candidate qualification | `asr/transform.py::_find_accumulator` |
 | `sec:loop` -- the classify-and-rewrite walk | `asr/transform.py::_analyze_loop_body` / `_rewrite_loop_body` |
 | `sec:inline` -- interprocedural reach by inlining | `asr/transform.py::_try_inline_call` (one-level, same restriction as FOL: callee arguments must be symbols or literals) |
-| `sec:world` -- the world guard | `asr/guard.py`, keyed on `(module, class)`, invalidated by wrapping `importlib.reload` |
+| Reconstruct's `if`/`cond` cases -- branch-shaped reconstruction | `asr/transform.py::_try_branch_reconstruction` (if/elif/.../else, mandatory terminal else, no inlining inside a branch -- same restriction as FOL) |
+| `maybe-scalar-replace-loop`/`%sr-replace-one` -- the multi-accumulator fixpoint | `asr/transform.py::_try_transform_inner`'s fixpoint loop over `_process_one_accumulator`; `return p, q, ...` for FOL's Two-body/Kalman shape |
+| `sec:world` -- the world guard | `asr/guard.py`, keyed on `(module, class)`, invalidated by wrapping `importlib.reload`; a multi-accumulator fast path is guarded by the AND of every tracked class's cell |
 | Figure 3 -- guarded dual path | every transformed function's body is `if <cell>.valid: <fast path> else: <original path>` |
 
-**Deliberately out of scope** (see the plan this was built from):
-multi-accumulator loops (FOL's fixpoint), `if`/`cond`/`case`-branched
-reconstruction, mutable (non-frozen) dataclasses, plain classes, and
-automatic/non-opt-in application -- this is an opt-in `@asr` decorator
-(source-to-source via `inspect.getsource` + `ast`), not a `sys.meta_path`
-import hook, closer in spirit to how Numba's `@jit` works than to
-something living inside CPython's own compiler.
+**Deliberately out of scope**: mutable (non-frozen) dataclasses, plain
+classes, and automatic/non-opt-in application -- this is an opt-in
+`@asr` decorator (source-to-source via `inspect.getsource` + `ast`), not
+a `sys.meta_path` import hook, closer in spirit to how Numba's `@jit`
+works than to something living inside CPython's own compiler.
 
 ## Layout
 
-- `asr/transform.py` -- qualification + rewrite (phases 1 and 2)
+- `asr/transform.py` -- qualification + rewrite (phases 1 and 2), inlining, branching, and the multi-accumulator fixpoint
 - `asr/guard.py` -- the world guard and `importlib.reload` wrapper
 - `asr/decorator.py` -- the `@asr` entry point
-- `tests/` -- 27 pytest cases: positive, negative/abort-safe, world-guard, and inlining
-- `benchmarks/` -- Particle, Counter, and Assoc, ported from FOL's `benchmarks/fol-code/*.fol`
+- `tests/` -- 40 pytest cases across `test_transform.py` (core v1), `test_inline.py` (v1.1), `test_branch.py` and `test_multi_accumulator.py` (v1.2), `test_decorator.py`, `test_guard.py`
+- `benchmarks/` -- Particle, Counter, and Assoc, ported from FOL's `benchmarks/fol-code/*.fol` (Clamp/Bounce/Phase and Two-body/Kalman are portable now that branching and multi-accumulator support exist, but aren't ported yet)
 
 ## Running
 
@@ -51,8 +51,8 @@ python -m benchmarks.run_all
 ## Honest caveats
 
 This is an existence proof, not a claim of parity with the paper's
-Table 1/2 rigor: single machine, opt-in decorator only, no
-multi-accumulator fixpoint, and the allocation figures reported by the
+Table 1/2 rigor: single machine, opt-in decorator only, and the
+allocation figures reported by the
 benchmark harness are exact constructor-call counts (not FOL's
 `bytes-consed` counter) -- an earlier version of the harness used
 `tracemalloc` snapshot-diffing and it was actively misleading on this

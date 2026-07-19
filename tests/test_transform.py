@@ -233,26 +233,9 @@ def test_declines_plain_class():
     assert try_transform(_run_plain) is None
 
 
-@dataclasses.dataclass(frozen=True)
-class _BranchPoint(object):
-    x: float
-    y: float
-
-
-def _run_branched(n):
-    p = _BranchPoint(0.0, 0.0)
-    i = 0
-    while i < n:
-        if i % 2 == 0:
-            p = _BranchPoint(p.x + 1.0, p.y)
-        else:
-            p = _BranchPoint(p.x, p.y + 1.0)
-        i += 1
-    return p
-
-
-def test_declines_branched_reconstruction():
-    assert try_transform(_run_branched) is None
+# Branch-shaped (if/elif/else) reconstruction is a v1.2 feature -- see
+# tests/test_branch.py. It's no longer declined; that positive behavior
+# is exercised there rather than as a negative case here.
 
 
 def _no_loop(n):
